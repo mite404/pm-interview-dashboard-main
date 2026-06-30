@@ -9,7 +9,7 @@ One entry per commit, newest on top. Rationale: `docs/PLAN.md`.
 `src/lib/tools.ts`: the two pure calculations for `getAggregateStats`, test-driven (`tools.test.ts`, 8 tests). Vitest installed just-in-time.
 
 - `validate(raw)` - the graded LLM->Convex boundary: untyped JSON in, typed args out, or a descriptive throw. Registry-wide convention - rejects non-objects, mistyped `after`/`groupFolder`, and any unknown key (named in the error so the loop can self-correct).
-- `toStatusBars(stats)` - derives the three chart bars (`succeeded` / `active` / `failed = finishedCount - succeeded`), which sum to `total`.
+- `toStatusBars(stats)` - derives the three chart bars (`succeeded` / `active` / `failed = finishedCount - succeeded`), which sum to `total`. Its output type `StatusBar` lives in `types.ts` (the cross-layer contract the future chart imports), not in `tools.ts`.
 - Vitest config is `node`-only with no React plugin; jsdom + React arrive with the first render test (commit 7).
 
 Gate: `bun run test` 8/8, `src/` lints clean.

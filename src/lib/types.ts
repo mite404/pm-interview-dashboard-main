@@ -26,6 +26,14 @@ export interface ToolResult {
   data: AggregateStats;
 }
 
+// The cross-layer contract between the calc (`toStatusBars` in tools.ts) and
+// the pure chart (commit 7): both import it from here. The transform runs in
+// the shell (App.tsx), never inside the chart, so the chart stays presentational.
+export interface StatusBar {
+  status: "succeeded" | "active" | "failed";
+  count: number;
+}
+
 // ── Tool registry (the LLM <-> Convex boundary the brief grades) ─────────
 // Dependencies are injected, never hard-imported, so each tool's `run` is
 // testable in isolation with a fake client. `validate` is the trust boundary:

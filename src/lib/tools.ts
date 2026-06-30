@@ -3,14 +3,7 @@
 // in, data out, so it is fast and deterministic to unit-test (tools.test.ts).
 // `run` (the action that calls Convex) lands in a later commit.
 
-import type { AggregateStats, AggregateStatsArgs } from "./types";
-
-// ── Calc output shapes ───────────────────────────────────────────────────
-
-export interface StatusBar {
-  status: "succeeded" | "active" | "failed";
-  count: number;
-}
+import type { AggregateStats, AggregateStatsArgs, StatusBar } from "./types";
 
 // ── validate: the LLM -> Convex trust boundary the brief grades ──────────
 // Untyped LLM-emitted JSON in -> typed args out, or throw. Both args are
