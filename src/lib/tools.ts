@@ -1,20 +1,33 @@
-// Phase 1 calc layer (T2): the pure calculations for the steel thread's one
-// tool, `invocations.getAggregateStats`. No I/O, no Convex client - just data
-// in, data out, so it is fast and deterministic to unit-test (tools.test.ts).
-// `run` (the action that calls Convex) lands in a later commit.
+// The steel thread's one tool, `invocations.getAggregateStats`, built leaf to
+// root: the pure calculations first (`validate`, `toStatusBars` - data in, data
+// out, unit-tested in tools.test.ts), then the one action at the bottom (`run`,
+// the Convex call). The action is dependency-injected, so the calcs above never
+// touch the network and stay deterministic to test.
 
-import type { AggregateStats, AggregateStatsArgs, StatusBar } from "./types";
+import { api } from "../../convex/_generated/api";
+import type {
+  AggregateStats,
+  AggregateStatsArgs,
+  StatusBar,
+  ToolDeps,
+} from "./types";
 
 // ── validate: the LLM -> Convex trust boundary the brief grades ──────────
-// Untyped LLM-emitted JSON in -> typed args out, or throw. Both args are
-// optional (the thread passes none -> all-time stats). This is the
-// registry-wide convention: strict on the types of known keys, and it throws
-// on ANY unknown key rather than dropping it - the throw is fed back to the
-// agentic loop, and naming the offending key tells the LLM which arg to drop
-// on retry (the hallucination-catching the brief grades).
-
 const KNOWN_ARGS = ["after", "groupFolder"];
 
+/**
+ * Narrows untyped LLM-emitted JSON into typed `getAggregateStats` args.
+ *
+ * The registry-wide boundary convention: strict on the types of known keys
+ * (`after`, `groupFolder`, both optional - the thread passes none for all-time
+ * stats), and it throws on ANY unknown key rather than dropping it.
+ *
+ * @param raw - the LLM's emitted args (untrusted; `undefined`/`null` -> `{}`)
+ * @returns the typed, validated args
+ * @throws if `raw` is not an object, carries an unknown key, or gives `after` /
+ *   `groupFolder` the wrong type - the throw feeds the agentic loop, and naming
+ *   the offending key tells the LLM which arg to drop on retry
+ */
 export function validate(raw: unknown): AggregateStatsArgs {
   if (raw === undefined || raw === null) return {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
@@ -49,15 +62,42 @@ export function validate(raw: unknown): AggregateStatsArgs {
 }
 
 // ── toStatusBars: stats -> three chart bars ──────────────────────────────
-// The status enum is {pending, running, succeeded, failed}, so
-// active + succeeded + failed = total. The backend gives succeeded, active,
-// and finishedCount (= succeeded + failed) directly; we derive the third bar
-// as failed = finishedCount - succeeded. The three bars always sum to total.
-
+/**
+ * Derives the three status bars the chart renders from the raw stats.
+ *
+ * The status enum is {pending, running, succeeded, failed}, so
+ * active + succeeded + failed = total. The backend gives succeeded, active, and
+ * finishedCount (= succeeded + failed) directly; the third bar is derived as
+ * failed = finishedCount - succeeded. The three bars always sum to total.
+ *
+ * @param stats - the raw `getAggregateStats` return
+ * @returns the succeeded / active / failed bars, in render order
+ */
 export function toStatusBars(stats: AggregateStats): StatusBar[] {
   return [
     { status: "succeeded", count: stats.succeeded },
     { status: "active", count: stats.active },
     { status: "failed", count: stats.finishedCount - stats.succeeded },
   ];
+}
+
+// ── run: the action - call the real Convex query (T3) ────────────────────
+/**
+ * The tool's one side effect: calls `invocations.getAggregateStats` over Convex.
+ *
+ * Dependency-injected - `deps.convex` is the real ConvexHttpClient in the app
+ * (convexClient.ts) and a fake in tests, so the pure calcs above never reach the
+ * network. getAggregateStats is a plain query (not an action), so `.query()`.
+ * The live wire is proven by commit 0's probe, so this seam is covered by the
+ * loop integration test (commit 6) and the e2e (commit 9), not a unit test.
+ *
+ * @param args - validated args from {@link validate}
+ * @param deps - injected dependencies (the Convex client)
+ * @returns the aggregate stats from the backend
+ */
+export function run(
+  args: AggregateStatsArgs,
+  deps: ToolDeps,
+): Promise<AggregateStats> {
+  return deps.convex.query(api.invocations.getAggregateStats, args);
 }

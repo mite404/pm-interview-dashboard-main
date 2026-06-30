@@ -22,7 +22,7 @@ export type AggregateStats = FunctionReturnType<
 >; // -> { total, active, succeeded, finishedCount, avgDuration }
 
 export interface ToolResult {
-  tool: "invocations.getAggregateStats";
+  tool: "getAggregateStats";
   data: AggregateStats;
 }
 
@@ -50,9 +50,15 @@ export type AggregateStatsArgs = FunctionArgs<
 export interface Tool<Args, Data> {
   name: string;
   description: string;
-  // JSON Schema advertised to OpenRouter's `tools` param.
+  /** JSON Schema advertised to OpenRouter's `tools` param. */
   parameters: Record<string, unknown>;
-  validate: (raw: unknown) => Args; // raw LLM args -> typed Args, or throw
+  /**
+   * Narrows untyped LLM-emitted JSON to typed `Args`.
+   * @throws if the args are malformed or carry an unknown key - the throw feeds
+   *   the agentic loop so the model can self-correct.
+   */
+  validate: (raw: unknown) => Args;
+  /** Runs the tool's one side effect (the Convex call) via the injected `deps`. */
   run: (args: Args, deps: ToolDeps) => Promise<Data>;
 }
 
