@@ -1,6 +1,7 @@
 import js from "@eslint/js";
 import convexPlugin from "@convex-dev/eslint-plugin";
 import { defineConfig, globalIgnores } from "eslint/config";
+import eslintConfigPrettier from "eslint-config-prettier";
 import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import globals from "globals";
@@ -59,6 +60,8 @@ export default defineConfig(
   // Convex recommended rules. The plugin self-scopes these to convex/ via its
   // internal overrides, so they do not leak onto src/.
   ...convexPlugin.configs.recommended,
+  // Prettier must come last so it wins over any formatting rules above.
+  eslintConfigPrettier,
   // convex/ is the given, already-deployed backend. We consume it, we never
   // redeploy or rewrite it, so the strict type-safety rules (which the given
   // code predates) are relaxed HERE only. src/ keeps the full strict bar.

@@ -1,0 +1,9 @@
+dist/
+node_modules/
+bun.lock
+package-lock.json
+# Given files - we consume these, we do not own or reformat them.
+convex/
+README.md
+BRIEF.md
+API.md
