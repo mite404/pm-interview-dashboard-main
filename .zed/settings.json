@@ -1,0 +1,29 @@
+{
+  // Project-scoped overrides for the pm-interview-dashboard take-home.
+  // This project uses ESLint + Prettier ONLY. Your global OXC tooling
+  // (oxlint linter, oxfmt formatter) is disabled here so it cannot fight
+  // ESLint/Prettier or reformat files against the project's own config.
+  "languages": {
+    "JavaScript": {
+      "format_on_save": "on",
+      // Re-enable Zed's bundled Prettier (your global sets this false for JS/TS).
+      "prettier": { "allowed": true },
+      // Keep the TS server, turn ESLint on, exclude both OXC servers.
+      "language_servers": ["vtsls", "eslint", "!oxlint", "!oxfmt"],
+      // On save: apply ESLint autofixes, then format with Prettier.
+      "formatter": [{ "code_action": "source.fixAll.eslint" }, "prettier"]
+    },
+    "TypeScript": {
+      "format_on_save": "on",
+      "prettier": { "allowed": true },
+      "language_servers": ["vtsls", "eslint", "!oxlint", "!oxfmt"],
+      "formatter": [{ "code_action": "source.fixAll.eslint" }, "prettier"]
+    },
+    "TSX": {
+      "format_on_save": "on",
+      "prettier": { "allowed": true },
+      "language_servers": ["vtsls", "eslint", "!oxlint", "!oxfmt"],
+      "formatter": [{ "code_action": "source.fixAll.eslint" }, "prettier"]
+    }
+  }
+}

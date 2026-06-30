@@ -36,6 +36,10 @@ These are common instructions for Ethan's agents across all scenarios.
   If something clearly looks off, even if it is not directly related to what you are doing, try to get it fixed.
 - Apply the same high standard to engineering excellence: lint, test failures, and test flakiness.
   If you see one, even if it is not caused by what you are working on right now, still get it fixed.
+- Let's always work with atomic commits. Each commit should tell part of a story working to build a feature or fix a bug.
+  One commit with hundreds or thousands of lines of code changes is hard for anyone to track.
+- Always opt for writing files in the same way: imports, variable declarations, prep data to work with, helper fns / pure fns, the main orchestration at the bottom.
+  Work leafs to root and follow the functional programming principles from Grokking Simplicity: data, calculations, actions.
 
 ---
 

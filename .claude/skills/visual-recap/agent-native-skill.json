@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "source": "agent-native",
+  "appSkillId": "visual-plans",
+  "displayName": "Agent-Native Plan",
+  "skillName": "visual-recap",
+  "contentHash": "abaff64e4ab7f5d4",
+  "mcpUrl": "",
+  "installedAt": "2026-06-30T06:47:09.516Z",
+  "installCommand": "npx @agent-native/core@latest skills add visual-recap",
+  "updateCommand": "npx @agent-native/core@latest skills update visual-recap",
+  "planMode": "local-files"
+}

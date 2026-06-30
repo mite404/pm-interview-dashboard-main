@@ -1,4 +1,17 @@
 node_modules/
 .env
+.env.*
 .env.local
+!.env.example
 .DS_Store
+
+# Logs
+*.log
+
+# Test artifacts
+coverage/              # Vitest --coverage
+test-results/          # Playwright
+playwright-report/     # Playwright
+playwright/.cache/     # Playwright
+
+.zed  # my project scoped IDE settings
