@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "codegen": "convex codegen",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "check:backend": "bun run scripts/check-backend.ts",
@@ -36,6 +38,7 @@
     "prettier": "^3.9.4",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.62.1",
-    "vite": "^5.3.4"
+    "vite": "^5.3.4",
+    "vitest": "^4.1.9"
   }
 }
