@@ -5,12 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "vite build",
     "preview": "vite preview",
     "codegen": "convex codegen",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check:backend": "bun run scripts/check-backend.ts"
+    "check:backend": "bun run scripts/check-backend.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
   },
   "dependencies": {
     "convex": "^1.39.1",
@@ -24,9 +27,13 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "eslint": "^10.6.0",
+    "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
+    "prettier": "^3.9.4",
     "typescript": "^5.5.3",
     "typescript-eslint": "^8.62.1",
     "vite": "^5.3.4"

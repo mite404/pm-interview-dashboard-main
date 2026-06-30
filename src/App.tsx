@@ -5,7 +5,13 @@ export default function App() {
   const groups = useQuery(api.groups.getAll, {});
 
   return (
-    <div style={{ fontFamily: "system-ui, sans-serif", padding: 32, maxWidth: 720 }}>
+    <div
+      style={{
+        fontFamily: "system-ui, sans-serif",
+        padding: 32,
+        maxWidth: 720,
+      }}
+    >
       <h1>PlanMonster Dashboard</h1>
       <p>Hello world! This page pulls live data from the Convex deployment.</p>
 
