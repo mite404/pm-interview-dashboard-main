@@ -4,6 +4,18 @@ One entry per commit, newest on top. Rationale: `docs/PLAN.md`.
 
 ---
 
+## Commit 3 - OpenRouter parsing helpers (T2)
+
+`src/lib/openrouter.ts`: two pure functions that read OpenRouter's wire format, test-driven (`openrouter.test.ts`, 5 tests). No network - `fetch`/SSE plumbing is commit 5.
+
+- `extractToolCall(response)` - routing-turn body -> `ToolCall | null` (null = the model answered in prose). Parses the `arguments` JSON string to an object so the downstream `validate` gets an object; throws on malformed JSON so the loop can feed the reason back.
+- `extractTextDeltas(sse)` - answer-turn SSE text -> ordered `content` fragments; skips comment keep-alives, `[DONE]`, contentless deltas, and partial (unparseable) lines.
+- Untrusted input is `unknown`, narrowed with small `asRecord`/`asArray` guards - no `any`, no casts to a hand-wavy shape.
+
+Gate: `bun run test` 14/14, `src/` lints clean.
+
+---
+
 ## Commit 2 - Calc layer + Vitest (T2)
 
 `src/lib/tools.ts`: the two pure calculations for `getAggregateStats`, test-driven (`tools.test.ts`, 8 tests). Vitest installed just-in-time.
