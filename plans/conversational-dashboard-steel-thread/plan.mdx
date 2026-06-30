@@ -1,0 +1,537 @@
+---
+title: "Conversational Admin Dashboard — Steel Thread (Phase 1) + Phase 2 Roadmap"
+kind: plan
+---
+
+# Conversational Admin Dashboard — Steel Thread
+
+## Objective
+
+Build a chat-based admin dashboard: an admin types natural language, an LLM (via OpenRouter) with tool-calling maps the request to Convex queries, and the results render inline as streamed text plus a real chart, with a live tool-status indicator.
+
+The Convex backend is given and live (`https://utmost-poodle-412.convex.cloud`). We build only the frontend in `src/` and consume the generated typed `api`. Full reconnaissance and the backend domain map live in `docs/REPO_TOUR.md`.
+
+**Phase 1 is one vertical slice** that proves every integration seam exactly once, using a single tool. **Phase 2 is horizontal breadth** on that proven spine: more tools, a mutation, more chart types, and the polish that makes it feel like a real operator console. A few decisions are still open — see Open Questions at the bottom.
+
+<Callout id="done-definition" tone="decision">
+
+**"Phase 1 done" means:** the full seam chain below runs end to end with one tool, the gate stays green on every commit, and the Vitest + Playwright suites pass. That covers 7 of the 14 brief criteria. The remaining 7 are deferred to Phase 2 on purpose — see the coverage tables.
+
+</Callout>
+
+### The steel thread
+
+One slice that exercises each seam in the simplest setting where a failure is unambiguous. The reasoning is risk isolation and learning, not development time: prove the wiring before layering breadth on it.
+
+<Diagram id="steel-thread-flow" caption="Phase 1 seam chain — each box is one integration proven once. Test doubles sit where the LLM does; Convex is real.">
+
+```html
+<div class="thread" data-rough>
+  <div class="diagram-node">Admin types</div>
+  <div class="arrow">&rarr;</div>
+  <div class="diagram-node">
+    OpenRouter<br /><span class="diagram-muted"
+      >decide tool (mocked in tests)</span
+    >
+  </div>
+  <div class="arrow">&rarr;</div>
+  <div class="diagram-node">
+    validate args<br /><span class="diagram-muted">typed args or throw</span>
+  </div>
+  <div class="arrow">&rarr;</div>
+  <div class="diagram-node">
+    Convex query<br /><span class="diagram-muted">dailyUniqueUsers (real)</span>
+  </div>
+  <div class="arrow">&rarr;</div>
+  <div class="diagram-node">feed result back</div>
+  <div class="arrow">&rarr;</div>
+  <div class="diagram-node">
+    OpenRouter<br /><span class="diagram-muted">stream the answer</span>
+  </div>
+  <div class="arrow">&rarr;</div>
+  <div class="diagram-node">
+    render<br /><span class="diagram-muted">text + Recharts</span>
+  </div>
+</div>
+```
+
+```css
+.thread {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+  padding: 18px;
+}
+.thread .diagram-node {
+  flex: 1 1 120px;
+  min-width: 110px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  padding: 12px 10px;
+  border: 1px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  background: var(--wf-card);
+  color: var(--wf-ink);
+  font-weight: 600;
+  line-height: 1.3;
+}
+.thread .diagram-muted {
+  display: block;
+  margin-top: 4px;
+  font-weight: 400;
+  color: var(--wf-muted);
+}
+.thread .arrow {
+  display: flex;
+  align-items: center;
+  color: var(--wf-accent);
+  font-weight: 700;
+}
+```
+
+</Diagram>
+
+<Callout id="thread-tool" tone="info">
+
+**Tool for the thread:** `dashboard.dailyUniqueUsers`, called with a wide window (`days: 90`) so the frozen seeded days always fall inside it. Do **not** pass `lane` — the lane filter returns all-zeros against the seed.
+
+</Callout>
+
+## Working methodology (every commit)
+
+This is a take-home, and the commit/PR history is itself a grading signal — end-loaded tests are a known anti-pattern, so coverage ships alongside the logic it covers.
+
+- **Atomic, mise-en-place commits.** Prep the pure ingredients first, then wire them in. Each commit tells one part of the story and keeps the gate green (`lint-staged` + `bun run lint`).
+- **Test-alongside, never end-loaded.** A commit that adds non-trivial logic ships its own coverage (unit or e2e, whichever fits the seam). Prep/scaffolding commits, and commits only testable once a later piece exists, may legitimately carry none.
+- **File-structure convention** (per `AGENTS.md`): imports → declarations → prep data → helper/pure fns → main orchestration at the bottom. Build leaves to root, following Grokking Simplicity: data → calculations → actions.
+- **Dependency injection is the enabler.** `loop.ts` and each tool's `run` take their dependencies (OpenRouter fns, Convex client) as parameters, so they test in isolation with fakes. No hard-imported singletons in the orchestration path.
+- **TypeScript discipline.** No `any`, no `@ts-ignore`, no type-loosening to compile — fix the type. Annotate data-flow boundaries with `// -> Type` comments on the lines that cross a transformation.
+
+## Criteria coverage
+
+The five build tiers prove the architecture end to end with one tool — a deliberate subset of the 14 criteria.
+
+### Satisfied by the steel thread
+
+<Table
+  id="criteria-satisfied"
+  columns={["Criterion", "Status"]}
+  rows={[
+    ["Must #1 — chat interface", "yes"],
+    ["Must #2 — LLM tool-calling", "yes"],
+    ["Must #4 — one inline chart", "yes (real Recharts)"],
+    ["Must #5 — streaming", "yes (answer turn)"],
+    ["Must #6 — tool-status pill", "yes"],
+    ["Should #9 — error handling", "yes (loop try/catch)"],
+    [
+      "Should #7 — conversation context",
+      "partial (prior turns passed; lineage is Phase 2)",
+    ],
+  ]}
+/>
+
+### Deferred to Phase 2
+
+<Table
+  id="criteria-deferred"
+  columns={["Criterion", "Why it waits"]}
+  rows={[
+    [
+      "Must #3 — >=5 tools",
+      "the thread wires one; the big remaining must-have",
+    ],
+    [
+      "Should #8 — clarify on ambiguity",
+      "UX layer, added once the loop is proven",
+    ],
+    [
+      "Should #10 — >=1 mutation",
+      "intelligenceTaskDefs.pause, added as a second tool",
+    ],
+    ["Nice #11 — multiple chart types", "reuse the Recharts setup"],
+    ["Nice #12 — message drill-in", "second/third tool"],
+    ["Nice #13 — cost breakdown", "listCostRollups + getRunUsage"],
+    ["Nice #14 — DESIGN.md", "written incrementally, final pass near the end"],
+  ]}
+/>
+
+## Build order — tiers vs commits (one PR: "steel thread")
+
+Tiers are ordered phases (data → calculations → actions → UI → verification), not single commits. The commit order follows the tier order and never jumps backward, but a tier may span several atomic commits. There is no monolithic tooling commit: each dev/runtime dependency is installed just-in-time, in the commit that first needs it (Vitest before the first unit test, Recharts before the chart, Playwright before the e2e). Pre-req already done: `VITE_OPENROUTER_API_KEY` in `vite-env.d.ts`.
+
+<Table
+  id="build-order"
+  columns={["#", "Tier", "Commit", "Ships test?"]}
+  rows={[
+    [
+      "1",
+      "T1 data",
+      "src/lib/types.ts — ChatMessage, ToolResult, tool-registry types",
+      "no (pure shapes)",
+    ],
+    [
+      "2",
+      "T2 calc",
+      "add Vitest; tools.ts validate for the one tool (args -> typed args or throw)",
+      "unit (the graded boundary)",
+    ],
+    [
+      "3",
+      "T2 calc",
+      "openrouter.ts pure parsers — tool-call extraction, SSE chunks -> text deltas",
+      "unit",
+    ],
+    [
+      "4",
+      "T3 action",
+      "convexClient.ts + the tool's run (real ConvexHttpClient)",
+      "partial via check-backend",
+    ],
+    [
+      "5",
+      "T3 action",
+      "openrouter.ts decideTool (non-streamed) + streamAnswer (SSE)",
+      "covered by loop test",
+    ],
+    [
+      "6",
+      "T3 action",
+      "loop.ts orchestrator (DI'd, iterate-until-done while-loop)",
+      "integration (fakes): happy + error path",
+    ],
+    [
+      "7",
+      "T4 UI",
+      "add Recharts; DailyUsersChart.tsx (bar chart over [{day, uniqueUsers}])",
+      "render test",
+    ],
+    [
+      "8",
+      "T4 UI",
+      "App.tsx — message list, input, send handler, pill, streamed text, chart",
+      "(covered by e2e)",
+    ],
+    [
+      "9",
+      "T5 verify",
+      "add Playwright; one e2e — mock OpenRouter (both turns), real Convex at days:90",
+      "e2e",
+    ],
+  ]}
+/>
+
+<Callout id="loop-shape" tone="info">
+
+`loop.ts` is built as an **iterate-until-done `while` loop** that runs exactly one iteration in Phase 1. That makes Phase 2's multi-step generalization purely additive — no rewrite of the orchestration spine.
+
+</Callout>
+
+### Files this introduces
+
+<FileTree
+  id="phase1-files"
+  title="src/ — Phase 1 additions"
+  entries={[
+    {
+      path: "src/lib/types.ts",
+      change: "added",
+      note: "ChatMessage, ToolResult, tool-registry types. The first dip; pure shapes.",
+    },
+    {
+      path: "src/lib/tools.ts",
+      change: "added",
+      note: "validate (args -> typed args or throw) + run. The boundary the brief grades.",
+    },
+    {
+      path: "src/lib/openrouter.ts",
+      change: "added",
+      note: "Pure parsers + decideTool (non-streamed) + streamAnswer (SSE).",
+    },
+    {
+      path: "src/lib/convexClient.ts",
+      change: "added",
+      note: "ConvexHttpClient wrapper consuming the generated typed api.",
+    },
+    {
+      path: "src/lib/loop.ts",
+      change: "added",
+      note: "DI'd orchestrator; iterate-until-done while-loop.",
+    },
+    {
+      path: "src/components/DailyUsersChart.tsx",
+      change: "added",
+      note: "Recharts bar chart keyed off the typed tool result.",
+    },
+    {
+      path: "src/App.tsx",
+      change: "modified",
+      note: "Chat UI: list, input, send handler wiring loop.ts, pill, streamed text, chart. Minimal styling (shadcn is Phase 2).",
+    },
+    {
+      path: "e2e/",
+      change: "added",
+      note: "Playwright spec: mock LLM, real Convex, assert pill + streamed text + rendered chart value.",
+    },
+  ]}
+/>
+
+## Testing approach
+
+- **Unit (Vitest):** the pure calculations — `validate`, the OpenRouter parsing. Fast, offline, deterministic.
+- **Integration (Vitest):** `loop.ts` with injected fakes; assert state transitions and the error path.
+- **E2E (Playwright):** mock the LLM (non-deterministic, costs tokens), real Convex (proves the typed-`api` wiring end to end, like a REST integration test against a real test DB).
+- **Behavior, not implementation:** assert what the admin experiences (pill shows, text streams, chart renders), not that a function was called.
+- **Edge cases, as each seam lands:** OpenRouter request fails, Convex call fails, LLM returns invalid args, LLM names an unknown tool. Each surfaces gracefully in the chat, never crashes.
+
+<Callout id="no-tsc-gate" tone="decision">
+
+**No whole-project `tsc` gate.** The given `convex/` source does not type-check, and the generated `api.d.ts` pulls those modules into any `tsc` run, so a clean compile is impossible without editing given code. Type safety on `src/` comes from type-aware ESLint plus the editor's TypeScript server.
+
+</Callout>
+
+## Verification (Phase 1)
+
+<Checklist
+  id="verify-phase1"
+  items={[
+    {
+      id: "v-dev",
+      label:
+        "bun run dev: 'how many active users this week?' -> pill, streamed sentence, rendered Recharts bar chart of day vs count",
+    },
+    { id: "v-chat", label: "'hi' -> streamed reply, no tool call" },
+    {
+      id: "v-test",
+      label: "bun run test (Vitest) green; Playwright e2e green",
+    },
+    {
+      id: "v-lint",
+      label:
+        "bun run lint exits 0 (src/ strict-clean; convex/ advisory); bun run build produces a bundle",
+    },
+    {
+      id: "v-backend",
+      label: "bun run check:backend still confirms the live wire",
+    },
+  ]}
+/>
+
+## Phase 2 — breadth on the proven spine
+
+Each item is a small vertical (data → calculation → action → UI → test) on the spine Phase 1 already proved. The rationale for every decision is recorded in `DESIGN.md`, written incrementally (one entry per decision as its commit lands), then a final editing pass.
+
+### The multi-step agentic loop
+
+The Phase 1 `while` loop generalizes to real multi-turn tool-calling. Name → id resolution is **LLM-driven** (the model calls `listAll`, reads the result, then calls `pause` with the resolved id) — our code never string-matches names; `validate` throwing on an unknown id is the safety net. Tool-layer errors are fed back to the LLM as that tool's result so it can self-correct; only an unreachable-LLM error aborts the turn. A `MAX_STEPS` cap (~5) guarantees termination and bounds per-message cost.
+
+<Mermaid
+  id="agentic-loop"
+  caption="Phase 2 multi-step loop. Tool errors re-enter the LLM as results; only the step cap or a final answer exits."
+  source={
+    "flowchart TD\n  A[User message] --> B[Build LLM context]\n  B --> C{LLM: tool call or answer?}\n  C -->|answer| J[Stream answer + render]\n  C -->|tool call| D[validate args]\n  D -->|valid| E[run Convex fn]\n  D -->|throws| F[feed error back as tool result]\n  E --> G[feed result back as tool result]\n  F --> H{steps < MAX_STEPS?}\n  G --> H\n  H -->|yes| C\n  H -->|no| I[graceful, reason-bearing stop]"
+  }
+/>
+
+<Callout id="no-chained-mutations" tone="warning">
+
+**No chained mutations.** Flows are reads-then-one-terminal-write, so there is never a half-applied mutation to roll back. If two writes ever had to be atomic, that belongs in a single Convex mutation — not two tool calls the LLM chains.
+
+</Callout>
+
+### Mutation UX
+
+- **`pause` / `resume`** fire directly; the LLM acknowledges the result ("Paused Daily Project Accounting"). Reversible, so no grace period.
+- **`enqueue`** carries a 5-second undo-send window (`undoWindowMs: 5000`): the loop defers the Convex call behind a client-side timer, so nothing reaches the backend until it elapses. Undo clears the timer; both fire and cancel feed a tool result back to the LLM so it closes the turn. Delivery is inert on the preview deployment (no channel credentials per `API.md`), so it is risk-free to demo.
+- **Ambiguity (Should #8)** is handled at the prompt level for all tools: when the target is unclear ("which task?"), the LLM asks rather than guesses. This is separate from the mutation grace period.
+
+### Rendering and conversation context
+
+Two stores are kept distinct, and one completed turn writes both. This is the non-obvious part of the design, so it gets its own picture.
+
+<Diagram id="two-store" caption="Dual state: what the admin sees vs. what is sent to OpenRouter. After a turn, bulky tool results are stubbed in the LLM array to bound token growth.">
+
+```html
+<div class="stores" data-rough>
+  <div class="diagram-panel">
+    <div class="store-head">
+      UI message list <span class="diagram-muted">(what the admin sees)</span>
+    </div>
+    <div class="diagram-card">assistant prose</div>
+    <div class="diagram-card">rendered Recharts chart</div>
+    <div class="diagram-card">rendered GFM table</div>
+  </div>
+  <div class="diagram-panel">
+    <div class="store-head">
+      LLM message array <span class="diagram-muted">(sent to OpenRouter)</span>
+    </div>
+    <div class="diagram-card">system prompt</div>
+    <div class="diagram-card">tool_call</div>
+    <div class="diagram-card">
+      tool_result
+      <span class="diagram-muted">stubbed: "[chart data rendered]"</span>
+    </div>
+  </div>
+</div>
+```
+
+```css
+.stores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 16px;
+}
+.stores .diagram-panel {
+  flex: 1 1 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  background: var(--wf-paper);
+}
+.stores .store-head {
+  font-weight: 700;
+  color: var(--wf-ink);
+  margin-bottom: 4px;
+}
+.stores .diagram-card {
+  padding: 8px 10px;
+  border: 1px solid var(--wf-line);
+  border-radius: var(--wf-radius);
+  background: var(--wf-card);
+  color: var(--wf-ink);
+}
+.stores .diagram-muted {
+  font-weight: 400;
+  color: var(--wf-muted);
+}
+```
+
+</Diagram>
+
+- **Tables render in-chat** via `react-markdown` + `remark-gfm`: the LLM emits GFM table syntax, rendered as a React subtree (safe inline, no raw HTML, no sandbox). **Charts** render as Recharts components keyed off the typed tool result, not through markdown.
+- **Conversation context (Should #7)** keeps full prose continuity, but once a turn completes, bulky tool-result content is stubbed (e.g. `[chart data rendered]`) to bound token growth. We stub rather than delete because the API rejects a `tool_call` with no matching tool-result message. Windowing + summarization is the production scale-up, omitted here because admin sessions are short (noted in `DESIGN.md`).
+- **Time-window vocabulary** mirrors the existing tool's filters (`24h / 7d / 30d / 60d / 90d`): the LLM maps "this week" → 7d, "this month" → 30d, and `days: 90` stays the widest window so seeded data is always in range.
+
+### Design direction
+
+The dashboard is internal admin/operator tooling, not contractor-facing ("the admin is the user"; the backend has no per-tenant scoping). Match the existing "MonsterClaw" ops-console aesthetic: near-black background, construction-orange primary (`#F96302`), monospace labels, sharp corners. Source components from the `phillips-poc-public` project (Tailwind 4, shadcn/Radix, lucide, `--radius: 0`), reusing its dark-mode CSS variables and swapping `--primary` to the orange.
+
+### Phase 2 work items → backend → criteria
+
+<Table
+  id="phase2-map"
+  columns={["Work item", "Convex function(s)", "Criteria closed"]}
+  rows={[
+    [
+      "Expand the tool registry to ~6 tools",
+      "the five below + the Phase 1 one",
+      "Must #3 (>=5 tools)",
+    ],
+    [
+      "Pause/resume a scheduled task (the mutation)",
+      "intelligenceTaskDefs.pause / resume",
+      "Should #10",
+    ],
+    [
+      "Clarify ambiguous requests",
+      "loop/prompt UX, no new backend",
+      "Should #8",
+    ],
+    ["Drill into a specific user's chat", "messages.listByChatJid", "Nice #12"],
+    [
+      "Reconstruct a user's reply thread",
+      "messages.getReplyLineage",
+      "Should #7 (partial -> full)",
+    ],
+    [
+      "Multiple chart types (line, table)",
+      "getAggregateTokenUsage (line); invocations.listRecent + getAggregateStats (table)",
+      "Nice #11",
+    ],
+    [
+      "Cost breakdown by Go Deep run",
+      "overnightBriefRuns.listCostRollups -> fan out to getRunUsage",
+      "Nice #13",
+    ],
+    [
+      "npx shadcn init + UI polish",
+      "none (UI layer)",
+      "evaluation axis #2 — feels like a real tool",
+    ],
+    ["Write DESIGN.md", "none", "Nice #14"],
+  ]}
+/>
+
+### Open Questions
+
+<QuestionForm
+  id="open-questions"
+  questions={[
+    {
+      id: "llm-model",
+      title: "Which OpenRouter model backs tool-calling + streaming?",
+      subtitle:
+        "The plan never pins one. Tool-call reliability and cost both depend on it; the choice can be a single env value.",
+      mode: "single",
+      options: [
+        {
+          id: "gpt-4o-mini",
+          label: "openai/gpt-4o-mini",
+          detail:
+            "Cheap, fast, reliable tool-calling — good default for a demo with a mocked LLM in tests.",
+          recommended: true,
+        },
+        {
+          id: "claude-sonnet",
+          label: "anthropic/claude-3.5-sonnet (or newer)",
+          detail:
+            "Stronger multi-step reasoning for Phase 2's name->id resolution, higher cost.",
+        },
+        {
+          id: "configurable",
+          label: "Make it a configurable env var, decide later",
+          detail: "Defer the call; pick during Phase 2 hardening.",
+        },
+      ],
+      required: true,
+    },
+    {
+      id: "merge-gate",
+      title: "Do we merge the steel-thread PR before starting Phase 2?",
+      subtitle:
+        "Affects the review cadence and whether Phase 2 is one big PR or a series on top of a merged base.",
+      mode: "single",
+      options: [
+        {
+          id: "merge-first",
+          label: "Merge Phase 1 first",
+          detail:
+            "Clean review checkpoint; Phase 2 builds on a known-green base. Matches 'one PR: steel thread'.",
+          recommended: true,
+        },
+        {
+          id: "same-branch",
+          label: "Keep building on the same branch",
+          detail:
+            "One larger PR; fewer review rounds but a bigger diff to grade.",
+        },
+      ],
+      required: true,
+    },
+    {
+      id: "constraints",
+      title:
+        "Any constraints on scope, deadline, or what the reviewer most wants to see?",
+      mode: "freeform",
+      placeholder:
+        "e.g. prioritize the mutation over chart variety, hard token budget, demo date...",
+    },
+  ]}
+  submitLabel="Send answers"
+/>
