@@ -13,6 +13,9 @@ Full reconnaissance, decisions, and the backend domain map live in `docs/REPO_TO
 
 - Work atomically, mise-en-place style: prep the pure ingredients first, then add them to the application in order.
   Each commit tells one part of the story and keeps the gate green (`lint-staged` + `bun run lint`).
+- A commit boundary, concretely: the smallest diff where (a) the gate is green, (b) it completes exactly one story beat - one pure fn + its test, one tool's `validate` + test, one component + render test, or one loop capability + its integration test - and (c) it carries its own test if it added non-trivial logic.
+  Stop when the next change would start a different beat or force the gate red midway.
+  The build order gives the sequence of beats; this rule gives where each one ends - so Phase 2's commits are derivable even though they are not enumerated like Phase 1's.
 - Test-alongside, never end-loaded: a commit that adds non-trivial logic ships its own coverage (unit or e2e, whichever fits the seam).
   Prep/scaffolding commits, and commits that only become testable once a later piece exists, may legitimately carry no test.
 - File-structure convention (per `AGENTS.md`): imports, then declarations, then prep data, then helper/pure fns, then the main orchestration at the bottom.
@@ -59,7 +62,6 @@ The five build tiers prove the architecture end to end with one tool. That is a 
 | Nice #11 multiple chart types        | reuse the Recharts setup                             |
 | Nice #12 message drill-in            | second/third tool                                    |
 | Nice #13 cost breakdown              | `listCostRollups` + `getRunUsage`                    |
-| Nice #14 DESIGN.md                   | written near the end                                 |
 
 ## Build order: tiers vs commits (one PR: "steel thread")
 
@@ -76,7 +78,7 @@ Approximate sequence, ~9 atomic commits, each green through the gate, annotated 
 4. (T3 action) `src/lib/convexClient.ts` + the tool's `run` (real `ConvexHttpClient`; partially proven by `scripts/check-backend.ts`).
 5. (T3 action) `src/lib/openrouter.ts` `decideTool` (non-streamed) and `streamAnswer` (SSE). Stream only the answer turn; the routing turn has no prose to show.
 6. (T3 action) `src/lib/loop.ts` orchestrator (DI'd), built as an iterate-until-done `while` loop (runs one iteration in Phase 1, so Phase 2 multi-step is purely additive) + integration test with fakes (happy path + error path: tool throws -> assistant error, no crash).
-7. (T4 UI) add Recharts; `src/components/DailyUsersChart.tsx` (bar chart over `[{day, uniqueUsers}]`) + render test. Recharts over hand-rolled SVG: it is the shadcn-stack charting lib, covers Nice #11's bar/line/table, and avoids a throwaway stub.
+7. (T4 UI) add Recharts; `src/components/DailyUsersChart.tsx` (bar chart over `[{day, uniqueUsers}]`) + render test. Recharts over hand-rolled SVG: it is the shadcn-stack charting lib, covers Nice #11's bar and line types (tables render via react-markdown, not Recharts), and avoids a throwaway stub.
 8. (T4 UI) `src/App.tsx`: message list, input, send handler wiring `loop.ts`, tool-status pill, streamed text, the chart. Minimal plain styling (shadcn is Phase 2).
 9. (T5 verify) add Playwright; one e2e (`e2e/`): mock OpenRouter (both turns), real Convex at `days: 90`; assert the pill appears, text streams in, the chart renders a known seeded value.
 
@@ -107,16 +109,30 @@ The dashboard is internal admin/operator tooling, not contractor-facing: the bri
 Match that existing tool's dark ops-console aesthetic: near-black background, construction-orange primary (`#F96302`, already close to MonsterClaw's accent), monospace labels, sharp corners.
 Source the components from the `phillips-poc-public` project (Tailwind 4, shadcn/Radix, lucide icons, `--radius: 0`), reusing its dark-mode CSS variables as the starting palette and swapping `--primary` to the construction orange.
 
-### Build order (Phase 2 as its own PR, or a small series)
+### Atomic commit list (Phase 2 continues Phase 1's numbering)
 
-1. Design system first: `npx shadcn init` (Tailwind 4, to match the source components) + import the reusable `phillips-poc` components + set the palette + delete the throwaway Phase 1 CSS.
-   One clean commit, so every later commit builds on the final styling foundation.
-2. Generalize `loop.ts` to multi-step (see below) + integration test (two-step `listAll -> pause` happy path; a mid-sequence tool error fed back).
-3. Add the read tools one at a time, each with its `validate` + unit test and its render path: `getAggregateTokenUsage` (`.action()`, line chart), `invocations.listRecent` + `getAggregateStats` (table + KPIs), `messages.listByChatJid` + `getReplyLineage` (drill-in + lineage), `intelligenceTaskDefs.listAll` (companion to the mutation).
-4. Add the mutation tools: `pause` + `resume` first (reversible, the brief's own example), then `enqueue` as the stretch second mutation with its undo-send window.
-5. `react-markdown` + `remark-gfm` for tables-in-chat; additional Recharts chart types.
-6. Cost breakdown by Go Deep run (Nice #13): `overnightBriefRuns.listCostRollups`, then fan out to `getRunUsage` per run, because the list returns zeroed usage.
-7. Final `DESIGN.md` editing pass.
+Commits 10+ continue the Phase 1 sequence (1-9 above), so the whole build is one trackable list - the current stage is always a single number.
+These Phase 2 entries are provisional: the order holds, but exact boundaries may shift as Phase 1 reality lands (re-confirm when Phase 1 is done).
+Each item is one green beat with its test, per the commit-boundary rule in the methodology. The feature subsections below carry the design detail for these commits.
+Tier note: Phase 1 built one tier per commit (data -> calc -> action -> UI -> verify) to prove the spine bottom-up. Phase 2 commits are per-feature verticals on that proven spine, so most span several tiers in one beat - the tags below show each commit's span.
+Suggested PR seams: 10-13 (foundation: design system, prompt, loop, markdown), 14-19 (tools + mutations), 20-25 (drill-in, navbar, context, cost, DESIGN.md).
+
+10. (T4 UI) Design system: `npx shadcn init` (Tailwind 4) + import the reusable `phillips-poc` ui components + dark palette with construction-orange `--primary` + delete the throwaway Phase 1 CSS. One clean foundation commit; the Phase 1 render/e2e tests stay green.
+11. (T2 calc) `src/lib/prompt.ts` `buildSystemPrompt({ now })` pure fn + unit test (date injected, load-bearing rules present); wire it into the loop's system message.
+12. (T3 action) Loop multi-step hardening: `MAX_STEPS` cap + errors-fed-back-as-tool-results + reason-bearing failure, with integration tests (scripted fake LLM: two-step happy path, cap-hit termination, tool-error fed back, LLM-channel error aborts).
+13. (T4 UI) Markdown rendering: `react-markdown` + `remark-gfm` for assistant prose + GFM tables in the message renderer + render test.
+14. (T2->T4 calc->action->UI) Tool: `getAggregateTokenUsage` (`.action()`) - `validate` + unit test, `run`, line-chart render + render test.
+15. (T2->T4 calc->action->UI) Tool: `invocations.listRecent` + `getAggregateStats` - `validate` + test, `run`, table + KPI render + render test.
+16. (T2->T3 calc->action) Tool: `messages.listByChatJid` - `validate` + test, `run`; the synthesis prose flow ("what's X been talking about" -> bounded window -> summary), rendered by the existing markdown path.
+17. (T2->T4 calc->action->UI) Tool: `intelligenceTaskDefs.listAll` - `validate` + test, `run`, render (companion read for the mutation's name -> id resolution).
+18. (T2->T3 calc->action) Mutation: `pause` + `resume` - `validate` + test, `run`; the LLM-driven `listAll -> pause` multi-step works end to end (satisfies Should #10).
+19. (T2->T4 calc->action->UI) Mutation (stretch): `enqueue` + undo-send window - `validate` + test, `run` deferred behind a client-side timer (the undo pill is the UI); fake-timer integration test (fires on elapse, never on undo).
+20. (T2 + T4 calc + UI) Transcript Sheet component: right-side slide-over (greyed composer, dated banner, shaded background, two-sided bubbles via `isFromMe`) + the time-gap separator pure fn + unit test.
+21. (T3->T5 action->UI->verify) Wire the drill-in: a "View full transcript" button on synthesis answers opens the Sheet; add the `getReplyLineage` tool (deeper thread, full Should #7); one e2e drill-in.
+22. (T4 UI) Navbar: reproduce MonsterClaw's IA; in-scope items seed conversations into the composer; out-of-scope (Leads, Marketing) disabled with a tooltip + non-color cues.
+23. (T2 calc) Context-stubbing compactor: pure fn (stub tool-result content between turns, preserve the `tool_call`/`tool_result` pairing) + unit test; wire into history management.
+24. (T3->T4 action->UI) Cost breakdown by Go Deep run (Nice #13): `overnightBriefRuns.listCostRollups` then fan out to `getRunUsage` per run, + render.
+25. (T5 verify) Final `DESIGN.md` editing pass + full verification (lint exits 0, unit + integration + e2e green, `vite build` clean, `check:backend` green).
 
 ### The multi-step agentic loop (hardening)
 
@@ -148,6 +164,45 @@ Source the components from the `phillips-poc-public` project (Tailwind 4, shadcn
   We stub rather than delete because the API rejects a `tool_call` with no matching tool-result message.
   Windowing + summarization is the production scale-up, omitted here because admin sessions are short (noted in `DESIGN.md`).
 - Time-window vocabulary mirrors the existing tool's filters (`24h / 7d / 30d / 60d / 90d`): the LLM maps "this week" -> 7d, "this month" -> 30d, and `days: 90` stays the widest window so seeded data is always in range.
+
+### System prompt
+
+- A dynamic `buildSystemPrompt({ now })` pure function in `src/lib/prompt.ts`; the current date is injected so the LLM resolves relative windows ("this week" -> 7d) against the seeded data, not its training cutoff.
+- Tool descriptions live in the tool schemas (the `tools` param), not the prompt; the prompt owns only cross-cutting behavior.
+- Minimal, load-bearing rules only: role, injected date, ambiguity -> ask (Should #8), single-newline + GFM-table output (brief line 78), and an anti-fabrication rule ("only state figures returned by tools; never invent numbers").
+  The anti-fabrication rule is the highest-value line for a data tool - a confidently wrong number is worse than a crash.
+- No few-shot examples and no tool list in the prompt; add a rule only when a test or a real interaction proves the model needs it.
+
+### Conversation drill-in: synthesis vs browsing
+
+Two distinct features with two output paths, deliberately not merged:
+
+- Synthesis (the default for "what's Maya been talking about", "where did we leave off", "what's on the agenda"): the LLM reads a bounded `listByChatJid` window and answers in prose.
+  No special component; this is the headline conversational value and the brief's own example (line 23).
+- Literal message browsing (Nice #12): a separate, explicitly requested "show me the transcript" action that renders the messages as a component, not prose.
+
+The transcript drill-in (the browsing component):
+
+- Opens in a right-side Sheet (slide-over), triggered by a "View full transcript" button on a synthesis answer - never auto-opened, so a multitasking admin is never locked out of their current task.
+- A Sheet over a modal or a new view: no router (we have none), it preserves the conversation underneath, and it matches "inspect then return" semantics.
+- Read-only affordances make it unambiguously a transcript, not the admin's own chat: greyed/disabled composer + "Viewing User X's transcript - DATE" banner, a shaded background, two-sided bubbles via `isFromMe`, and iMessage-style time separators inserted where the gap between consecutive `timestamp`s exceeds a constant (~20-30 min) - a pure calculation, unit-testable.
+- `getReplyLineage` is the deeper "show the thread around this message" drill (full Should #7), not part of the first drill-in.
+
+### Navbar: conversation seeders, not dead links
+
+- Reproduce MonsterClaw's nav (Overview, Leads, Groups, Tokens & Cost, Users, Intelligence, Marketing, Direct Messages) for fidelity, but make it functional without a router.
+- In-scope items seed a conversation rather than navigate: clicking "Tokens & Cost" drops "Show me token usage and cost this month" into the composer.
+  This doubles as cold-start discoverability - it teaches a new admin what they can ask, instead of facing an empty chat.
+- Out-of-scope items (Leads = CRM/Mapbox, Marketing = no backend) are visibly disabled: a muted shade plus redundant non-color cues (reduced opacity, `cursor: not-allowed`, a "Not in this build" tooltip), so the disabled state reads as intentional scoping and stays accessible.
+- No per-item views or data screens behind the nav; the nav seeds chats, the chat does the work.
+
+### Testing (Phase 2)
+
+Extends the Phase 1 approach: most new logic is pure and unit-tested, the loop is covered at the integration level, and E2E stays at one or two whole journeys.
+
+- Unit (pure calculations): `buildSystemPrompt({ now })` (date injected, load-bearing rules present); the transcript time-gap separator (separators appear only where the gap exceeds the threshold); the context-stubbing compactor (tool-result content stubbed, but the `tool_call`/`tool_result` pairing preserved - the test locks the reason we stub rather than delete); each new tool's `validate`.
+- Integration (the loop, driven by a scripted fake LLM that returns a queue of responses): the multi-step `listAll -> pause` happy path; the `MAX_STEPS` cap (a fake that always calls a tool -> graceful termination); errors-as-observations (a tool throw is fed back and the loop continues, while an unreachable-LLM error aborts); and the `enqueue` undo-send window with fake timers + a spied Convex client (fires once the window elapses, never fires if undo is triggered first).
+- E2E (Playwright): one happy-path journey (type -> tool pill -> streamed answer -> rendered chart/table) plus one drill-in (synthesis -> "View transcript" -> Sheet opens). No E2E per tool; confidence comes from unit + integration.
 
 | Phase 2 work item                                      | Convex function(s)                                                                      | Criteria closed                                                                                          |
 | ------------------------------------------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
