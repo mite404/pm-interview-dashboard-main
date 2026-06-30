@@ -126,7 +126,9 @@ function Groups() {
   return (
     <ul>
       {groups.map((g) => (
-        <li key={g._id}>{g.name} — {g.jid}</li>
+        <li key={g._id}>
+          {g.name} — {g.jid}
+        </li>
       ))}
     </ul>
   );
@@ -161,11 +163,11 @@ const usage = await client.action(api.invocationEvents.getAggregateTokenUsage, {
 These must be called with `.action()` / `useAction()`, not `.query()` /
 `useQuery()`, because they page internally:
 
-| Function | Dot-path |
-|---|---|
-| Batch metrics | `api.invocationEvents.getMetricsBatch` |
+| Function              | Dot-path                                      |
+| --------------------- | --------------------------------------------- |
+| Batch metrics         | `api.invocationEvents.getMetricsBatch`        |
 | Aggregate token usage | `api.invocationEvents.getAggregateTokenUsage` |
-| Invocation lineage | (not included in this trimmed backend) |
+| Invocation lineage    | (not included in this trimmed backend)        |
 
 Everything else is a `query` or `mutation`.
 
@@ -176,6 +178,7 @@ language and gets back data, visualizations, and insights. Wire an LLM with
 tool-calling that translates natural language into Convex function calls.
 
 Suggested approach:
+
 1. Define LLM tools that map 1:1 to `api.*` functions.
 2. The LLM picks which tool to call based on the admin's request.
 3. Execute the tool (call the Convex function), return the result to the LLM.
