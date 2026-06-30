@@ -14,4 +14,8 @@ test-results/          # Playwright
 playwright-report/     # Playwright
 playwright/.cache/     # Playwright
 
-.zed  # my project scoped IDE settings
+# my project scoped IDE settings
+.zed
+
+# Build output
+dist/

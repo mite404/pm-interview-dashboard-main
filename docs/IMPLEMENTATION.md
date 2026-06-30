@@ -4,6 +4,18 @@ One entry per commit, newest on top. Rationale: `docs/PLAN.md`.
 
 ---
 
+## Commit 4 - Convex client + the tool's `run` (T3)
+
+The action tier: the tool can now hit the real backend.
+
+- `src/lib/convexClient.ts` - one `ConvexHttpClient` built at module scope from `VITE_CONVEX_URL`. Browser-direct in Phase 1.
+- `run(args, deps)` in `tools.ts` - delegates to `deps.convex.query(api.invocations.getAggregateStats, args)`. Dependency-injected, so the app passes the real client and tests pass a fake; the pure calcs above stay network-free.
+- No new unit test by design (the plan omits one for this seam): `run` is a one-line typed delegation, already proven live by commit 0's probe and covered downstream by the loop integration test (commit 6) and the e2e (commit 9). A client-mocking unit test would assert the mock, not behavior.
+
+Gate: `bun run test` 14/14, `src/` lints clean, `bun run build` bundles.
+
+---
+
 ## Commit 3 - OpenRouter parsing helpers (T2)
 
 `src/lib/openrouter.ts`: two pure functions that read OpenRouter's wire format, test-driven (`openrouter.test.ts`, 5 tests). No network - `fetch`/SSE plumbing is commit 5.

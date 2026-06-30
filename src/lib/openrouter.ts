@@ -27,11 +27,17 @@ function asArray(value: unknown): unknown[] | undefined {
 }
 
 // ── extractToolCall: routing-turn response -> ToolCall | null ────────────
-// Returns null when the model answered in prose (no tool_calls). Throws on a
-// structurally-present-but-malformed call so the loop can feed the reason back.
-// Single tool per turn by design: the loop runs one tool, feeds the result back,
-// then re-asks - so we read the first call only.
-
+/**
+ * Parses a routing-turn response into the single tool the model chose.
+ *
+ * Single tool per turn by design: the loop runs one tool, feeds the result
+ * back, then re-asks, so only the first `tool_calls` entry is read.
+ *
+ * @param response - raw OpenRouter chat-completion JSON; shape is untrusted
+ * @returns the chosen {@link ToolCall}, or `null` if the model answered in prose
+ * @throws if a `tool_call` is present but malformed (missing id/name, or
+ *   `arguments` that aren't valid JSON) - so the loop can feed the reason back
+ */
 export function extractToolCall(response: unknown): ToolCall | null {
   const choices = asArray(asRecord(response)?.choices);
   const message = asRecord(asRecord(choices?.[0])?.message);
@@ -64,20 +70,20 @@ export function extractToolCall(response: unknown): ToolCall | null {
 }
 
 // ── extractTextDeltas: the streamed answer -> its words, in order ────────
-// The reply streams in as SSE. A real
-// line looks like `data: {...json...}` and carries the next bit of text, which
-// we collect in order.
-//
-// Three kinds of line are skipped on purpose:
-//   - keep-alive / blank lines the server sends just to hold the connection open
-//   - the `[DONE]` line, which only marks the end of the stream
-//   - the opening chunk that names the speaker ("assistant") but has no words yet
-//
-// A line that won't JSON-parse is almost always half a line, split across two
-// network packets. We skip it here; gluing the halves back together is the
-// streaming caller's job (streamAnswer, commit 5), which remembers the previous
-// packet - state this pure function deliberately avoids.
-
+/**
+ * Pulls the text fragments out of a streamed answer, in order.
+ *
+ * The reply streams in as SSE: each real line looks like `data: {...json...}`
+ * and carries the next bit of text. Three kinds of line are skipped on purpose
+ * - keep-alive / blank lines (which just hold the connection open), the
+ * `[DONE]` end-of-stream marker, and the opening chunk that names the speaker
+ * but has no words yet. A line that won't JSON-parse is almost always half a
+ * line split across two network packets; gluing the halves back together is the
+ * streaming caller's job (streamAnswer, commit 5), so this pure function skips it.
+ *
+ * @param sse - one or more raw SSE lines from the answer stream
+ * @returns the text fragments to append, in arrival order (empty if none)
+ */
 export function extractTextDeltas(sse: string): string[] {
   const deltas: string[] = [];
   for (const line of sse.split("\n")) {
