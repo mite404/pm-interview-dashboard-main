@@ -33,8 +33,9 @@ One vertical slice that proves every integration seam once, with one tool:
 
 The reasoning is risk isolation and learning, not development time: each seam is proven once in the simplest setting where a failure is unambiguous, and the wiring is understood before breadth is layered on.
 
-Tool for the thread: `dashboard.dailyUniqueUsers`, called with a wide window (`days: 90`) so the frozen seeded days always fall inside it.
-Do not pass `lane` (the lane filter returns all-zeros against the seed).
+Tool for the thread: `invocations.getAggregateStats`, called with no args (all-time), so the counts are stable and never depend on wall-clock proximity to the frozen late-June seed.
+It returns `{ total, active, succeeded, finishedCount, avgDuration }`. The chart shows three derived bars - succeeded, active, and failed (`finishedCount - succeeded`) - which always sum to `total`, because the status enum is `{pending, running, succeeded, failed}` (so `active + succeeded + failed = total`). `total` and `avgDuration` are KPI text, not bars (`total` is the sum; `avgDuration` is milliseconds).
+Why this over `dashboard.dailyUniqueUsers`: that tool filters the frozen message `timestamp`, so it renders only ~4 sparse spikes today and the e2e would assert a wall-clock-fragile value; `getAggregateStats` filters `_creationTime` and, with no `after`, is dense and stable. `dailyUniqueUsers` moves to Phase 2.
 
 ### Criteria coverage (what "Phase 1 done" means)
 
@@ -70,17 +71,18 @@ The commit order follows the tier order and never jumps backward, but a tier may
 There is no monolithic tooling commit: each dev/runtime dependency is installed just-in-time, in the commit that first needs it (Vitest before the first unit test, Recharts before the chart, Playwright before the e2e), so every commit stays focused and self-justifying.
 Pre-req already done: `VITE_OPENROUTER_API_KEY` in `vite-env.d.ts`.
 
-Approximate sequence, ~9 atomic commits, each green through the gate, annotated by tier:
+Approximate sequence, ~10 atomic commits (0-9), each green through the gate, annotated by tier:
 
+0. (T0 probe) `scripts/probe-tools.ts` - a throwaway, read-only `ConvexHttpClient` script that probes every non-mutation tool with the args the LLM will really emit and prints the return shape plus a "has data?" flag. Two call paths: `.query()` for the queries, and `.action()` for `getAggregateTokenUsage` (it pages internally, so it is an action - calling it with `.query()` fails). It skips all mutations (`pause` / `resume` / `enqueue`), which are writes proven at the integration/E2E layer, never fired against the live deployment in a smoke loop. This printout is the real tool contract, because the checked-in `convex/` source is a sketch that does not match the live deployment (verified: `dashboard.ts` references an undeclared `lane` that would `ReferenceError`, yet the deployment returns in-window data fine).
 1. (T1 data) `src/lib/types.ts` - `ChatMessage`, `ToolResult`, tool-registry types. Pure shapes; the first dip; no test needed.
-2. (T2 calc) add Vitest; `src/lib/tools.ts` `validate` for the one tool (args in -> typed args or throw) + unit test. The boundary the brief grades.
+2. (T2 calc) add Vitest; the pure calc layer for `invocations.getAggregateStats` in `src/lib/tools.ts`: `validate` (args in -> typed args or throw; args are `{ after?, groupFolder? }`, the thread passes none) + the `toStatusBars` transform (`stats -> [{ status, count }] x3`, deriving `failed = finishedCount - succeeded`) + unit tests. `validate` is the boundary the brief grades; `toStatusBars` is the thread's first non-trivial, fail-able calculation (the old anchor returned a ready-made array, so its calc tier was a passthrough).
 3. (T2 calc) `src/lib/openrouter.ts` pure parsing helpers (tool-call extraction, SSE chunks -> text deltas) + unit tests.
-4. (T3 action) `src/lib/convexClient.ts` + the tool's `run` (real `ConvexHttpClient`; partially proven by `scripts/check-backend.ts`).
+4. (T3 action) `src/lib/convexClient.ts` + the tool's `run` calling `invocations.getAggregateStats` (a plain `query`, so `.query()`; real `ConvexHttpClient`, already proven by commit 0's probe).
 5. (T3 action) `src/lib/openrouter.ts` `decideTool` (non-streamed) and `streamAnswer` (SSE). Stream only the answer turn; the routing turn has no prose to show.
 6. (T3 action) `src/lib/loop.ts` orchestrator (DI'd), built as an iterate-until-done `while` loop (runs one iteration in Phase 1, so Phase 2 multi-step is purely additive) + integration test with fakes (happy path + error path: tool throws -> assistant error, no crash).
-7. (T4 UI) add Recharts; `src/components/DailyUsersChart.tsx` (bar chart over `[{day, uniqueUsers}]`) + render test. Recharts over hand-rolled SVG: it is the shadcn-stack charting lib, covers Nice #11's bar and line types (tables render via react-markdown, not Recharts), and avoids a throwaway stub.
+7. (T4 UI) add Recharts; `src/components/StatusBreakdownChart.tsx` (bar chart over `toStatusBars`' output `[{ status, count }]`, with `total` / `avgDuration` shown as KPI text beside it) + render test. Recharts over hand-rolled SVG: it is the shadcn-stack charting lib, covers Nice #11's bar and line types (tables render via react-markdown, not Recharts), and avoids a throwaway stub.
 8. (T4 UI) `src/App.tsx`: message list, input, send handler wiring `loop.ts`, tool-status pill, streamed text, the chart. Minimal plain styling (shadcn is Phase 2).
-9. (T5 verify) add Playwright; one e2e (`e2e/`): mock OpenRouter (both turns), real Convex at `days: 90`; assert the pill appears, text streams in, the chart renders a known seeded value.
+9. (T5 verify) add Playwright; one e2e (`e2e/`): mock OpenRouter (both turns), real Convex (`getAggregateStats`, no args); assert the pill appears, text streams in, and the chart renders a stable known value (`succeeded = 24` / `total = 39`) - stable because the all-time stats do not depend on wall-clock proximity to the seed.
 
 ## Testing approach
 
@@ -92,7 +94,7 @@ Approximate sequence, ~9 atomic commits, each green through the gate, annotated 
 
 ## Verification (Phase 1)
 
-1. `bun run dev`; type "how many active users this week?" -> tool-status pill, a streamed sentence, and a rendered Recharts bar chart of day vs count. Type "hi" -> streamed reply, no tool call.
+1. `bun run dev`; type "give me an overview of how our agent runs are doing" -> tool-status pill, a streamed sentence, and a rendered Recharts bar chart of succeeded / active / failed. Type "hi" -> streamed reply, no tool call.
 2. `bun run test` (Vitest) green; the e2e suite (Playwright) green.
 3. `bun run lint` exits 0 (`src/` strict-clean; `convex/` advisory). `bun run build` (Vite) produces a bundle.
 4. `bun run check:backend` still confirms the live wire.
@@ -111,33 +113,34 @@ Source the components from the `phillips-poc-public` project (Tailwind 4, shadcn
 
 ### Atomic commit list (Phase 2 continues Phase 1's numbering)
 
-Commits 10+ continue the Phase 1 sequence (1-9 above), so the whole build is one trackable list - the current stage is always a single number.
+Commits 10+ continue the Phase 1 sequence (0-9 above), so the whole build is one trackable list - the current stage is always a single number.
 These Phase 2 entries are provisional: the order holds, but exact boundaries may shift as Phase 1 reality lands (re-confirm when Phase 1 is done).
 Each item is one green beat with its test, per the commit-boundary rule in the methodology. The feature subsections below carry the design detail for these commits.
 Tier note: Phase 1 built one tier per commit (data -> calc -> action -> UI -> verify) to prove the spine bottom-up. Phase 2 commits are per-feature verticals on that proven spine, so most span several tiers in one beat - the tags below show each commit's span.
-Suggested PR seams: 10-13 (foundation: design system, prompt, loop, markdown), 14-19 (tools + mutations), 20-25 (drill-in, navbar, context, cost, DESIGN.md).
+Suggested PR seams: 10-13 (foundation: design system, prompt, loop, markdown), 14-20 (tools + mutations), 21-26 (drill-in, navbar, context, cost, DESIGN.md).
 
 10. (T4 UI) Design system: `npx shadcn init` (Tailwind 4) + import the reusable `phillips-poc` ui components + dark palette with construction-orange `--primary` + delete the throwaway Phase 1 CSS. One clean foundation commit; the Phase 1 render/e2e tests stay green.
 11. (T2 calc) `src/lib/prompt.ts` `buildSystemPrompt({ now })` pure fn + unit test (date injected, load-bearing rules present); wire it into the loop's system message.
 12. (T3 action) Loop multi-step hardening: `MAX_STEPS` cap + errors-fed-back-as-tool-results + reason-bearing failure, with integration tests (scripted fake LLM: two-step happy path, cap-hit termination, tool-error fed back, LLM-channel error aborts).
 13. (T4 UI) Markdown rendering: `react-markdown` + `remark-gfm` for assistant prose + GFM tables in the message renderer + render test.
-14. (T2->T4 calc->action->UI) Tool: `getAggregateTokenUsage` (`.action()`) - `validate` + unit test, `run`, line-chart render + render test.
-15. (T2->T4 calc->action->UI) Tool: `invocations.listRecent` + `getAggregateStats` - `validate` + test, `run`, table + KPI render + render test.
-16. (T2->T3 calc->action) Tool: `messages.listByChatJid` - `validate` + test, `run`; the synthesis prose flow ("what's X been talking about" -> bounded window -> summary), rendered by the existing markdown path.
-17. (T2->T4 calc->action->UI) Tool: `intelligenceTaskDefs.listAll` - `validate` + test, `run`, render (companion read for the mutation's name -> id resolution).
-18. (T2->T3 calc->action) Mutation: `pause` + `resume` - `validate` + test, `run`; the LLM-driven `listAll -> pause` multi-step works end to end (satisfies Should #10).
-19. (T2->T4 calc->action->UI) Mutation (stretch): `enqueue` + undo-send window - `validate` + test, `run` deferred behind a client-side timer (the undo pill is the UI); fake-timer integration test (fires on elapse, never on undo).
-20. (T2 + T4 calc + UI) Transcript Sheet component: right-side slide-over (greyed composer, dated banner, shaded background, two-sided bubbles via `isFromMe`) + the time-gap separator pure fn + unit test.
-21. (T3->T5 action->UI->verify) Wire the drill-in: a "View full transcript" button on synthesis answers opens the Sheet; add the `getReplyLineage` tool (deeper thread, full Should #7); one e2e drill-in.
-22. (T4 UI) Navbar: reproduce MonsterClaw's IA; in-scope items seed conversations into the composer; out-of-scope (Leads, Marketing) disabled with a tooltip + non-color cues.
-23. (T2 calc) Context-stubbing compactor: pure fn (stub tool-result content between turns, preserve the `tool_call`/`tool_result` pairing) + unit test; wire into history management.
-24. (T3->T4 action->UI) Cost breakdown by Go Deep run (Nice #13): `overnightBriefRuns.listCostRollups` then fan out to `getRunUsage` per run, + render.
-25. (T5 verify) Final `DESIGN.md` editing pass + full verification (lint exits 0, unit + integration + e2e green, `vite build` clean, `check:backend` green).
+14. (T2->T4 calc->action->UI) Tools: `invocationEvents.getAggregateTokenUsage` (`.action()`, line chart) + `dashboard.dailyUniqueUsers` (daily-active-users bar series - the brief's literal example, reusing Recharts; known-sparse against the frozen seed, so call it `days: 90` and do not assert a specific value) - `validate` + unit tests, `run`s, renders + render tests.
+15. (T2->T4 calc->action->UI) Tool: `invocations.listRecent` - `validate` + test, `run`, table render (filter to failed for "show me recent failed runs") + render test. (`getAggregateStats` is already wired in Phase 1; its KPI is reused here, not re-added.)
+16. (T2->T3 calc->action) Resolver tool: `groups.getAll` wired as `listConversations` (returns `{ name, jid }`) - `validate` (no args) + `run`. It is the only tool exposing the `jid`/`chatJid` bridge (`listSignedUpUsersForAdmin` returns `personId`, not `jid`), and it is the companion read for the synthesis flow - the way commit 18's `listAll` is the companion for the mutation.
+17. (T2->T3 calc->action) Tool: `messages.listByChatJid` - `validate` (chatJid non-empty string; a wrong jid returns `[]`, fed back as self-correction) + test, `run`; the synthesis prose flow ("what's X been talking about" -> `listConversations` resolves the jid -> bounded window -> summary), rendered by the existing markdown path. The dependency hint ("chatJid must come from listConversations") lives in the tool description, not the system prompt.
+18. (T2->T4 calc->action->UI) Tool: `intelligenceTaskDefs.listAll` - `validate` + test, `run`, render (companion read for the mutation's name -> id resolution).
+19. (T2->T3 calc->action) Mutation: `pause` + `resume` - `validate` + test, `run`; the LLM-driven `listAll -> pause` multi-step works end to end (satisfies Should #10). Mutation safety is three thin layers, not `validate` alone: structural `validate` (well-formed id), a confirm-on-ambiguity prompt rule (added in commit 11), and a named acknowledgment (the `run` returns the patched doc, so the LLM states "Paused <name>" and a wrong target is visible immediately).
+20. (T2->T4 calc->action->UI) Mutation (stretch): `enqueue` + undo-send window - `validate` + test, `run` deferred behind a client-side timer (the undo pill is the UI); fake-timer integration test (fires on elapse, never on undo).
+21. (T2 + T4 calc + UI) Transcript Sheet component: right-side slide-over (greyed composer, dated banner, shaded background, two-sided bubbles via `isFromMe`) + the time-gap separator pure fn + unit test.
+22. (T3->T5 action->UI->verify) Wire the drill-in: a "View full transcript" button on synthesis answers opens the Sheet; add the `getReplyLineage` tool (deeper thread, full Should #7); one e2e drill-in.
+23. (T4 UI) Navbar: reproduce MonsterClaw's IA; in-scope items seed conversations into the composer; out-of-scope (Leads, Marketing) disabled with a tooltip + non-color cues.
+24. (T2 calc) Context-stubbing compactor: pure fn (stub tool-result content between turns, preserve the `tool_call`/`tool_result` pairing) + unit test; wire into history management.
+25. (T3->T4 action->UI) Cost breakdown by Go Deep run (Nice #13): `overnightBriefRuns.listCostRollups` then fan out to `getRunUsage` per run, + render.
+26. (T5 verify) Final `DESIGN.md` editing pass + full verification (lint exits 0, unit + integration + e2e green, `vite build` clean, `check:backend` green).
 
 ### The multi-step agentic loop (hardening)
 
-- Name -> id resolution is LLM-driven (Approach A): the model calls `listAll`, reads the result, then calls `pause` with the resolved id.
-  Our code does not string-match names; `validate` throwing on an unknown id is the safety net.
+- Name -> id resolution is LLM-driven (Approach A), used for both writes (`listAll` -> `pause`) and the synthesis read (`listConversations` -> `listByChatJid`): the model calls the companion list tool, reads the result, then calls the target tool with the resolved id/jid.
+  Our code does not string-match names. `validate` is the structural net (it rejects a malformed id/jid), not the wrong-target net - a valid-but-wrong id passes it; guarding the target is the job of the confirm-on-ambiguity rule and the named acknowledgment (see Mutation UX).
   This keeps a brittle resolver out of our code and exercises real multi-turn tool-calling.
 - `MAX_STEPS` cap (~5) guarantees the loop terminates and bounds per-message cost; hitting it surfaces a graceful, reason-bearing message.
 - Tool-layer errors (a `validate` throw, a failed Convex call) are fed back to the LLM as that tool's result so it can self-correct; only an unreachable-LLM error aborts the turn.
@@ -147,13 +150,13 @@ Suggested PR seams: 10-13 (foundation: design system, prompt, loop, markdown), 1
 
 ### Mutation UX
 
-- `pause` / `resume` fire directly; the LLM acknowledges the result ("Paused Daily Project Accounting").
-  Reversible, so no grace period.
+- `pause` / `resume` fire directly (reversible, so no grace period), but the wrong-target risk is guarded by three thin layers, each with one job:
+  (1) structural - `validate` rejects a malformed id; (2) intent - a prompt rule makes the LLM name the resolved target and confirm before firing if the resolution was at all ambiguous (the unambiguous case still fires one-shot); (3) detection - the `run` returns the patched doc (which carries `name`), so the acknowledgment states "Paused Daily Project Accounting" and a mis-resolution is visible and reversible immediately.
+  Do not bloat `validate` to look up and second-guess the id - the LLM controls its inputs, so that cannot fully work; keep `validate` structural and add the thin intent/detection layers instead.
 - `enqueue` carries a 5-second undo-send window (`undoWindowMs: 5000`): the loop defers the Convex call behind a client-side timer, so nothing reaches the backend until it elapses.
   Undo clears the timer; both fire and cancel feed a tool result back to the LLM so it closes the turn.
-  Delivery is inert on the preview deployment (no real channel credentials per `API.md`), so this is risk-free to demo.
-- Ambiguity (Should #8) is handled at the prompt level for all tools: when the target is unclear ("which task?"), the LLM asks rather than guesses.
-  This is separate from the mutation grace period.
+  Delivery is inert on the preview deployment (no real channel credentials per `API.md`), so this is a judgment showcase, not a live safety mechanism - note that in `DESIGN.md`.
+- Ambiguity (Should #8) is handled at the prompt level for all tools: when the target is unclear ("which task?", "which user?"), the LLM asks rather than guesses. On writes this becomes layer (2) above - name the resolved target and confirm before firing.
 
 ### Rendering and conversation context
 
@@ -163,13 +166,13 @@ Suggested PR seams: 10-13 (foundation: design system, prompt, loop, markdown), 1
 - Conversation context (Should #7) keeps full prose continuity, but once a turn completes, bulky tool-result content is stubbed (e.g. "[chart data rendered]") to bound token growth.
   We stub rather than delete because the API rejects a `tool_call` with no matching tool-result message.
   Windowing + summarization is the production scale-up, omitted here because admin sessions are short (noted in `DESIGN.md`).
-- Time-window vocabulary mirrors the existing tool's filters (`24h / 7d / 30d / 60d / 90d`): the LLM maps "this week" -> 7d, "this month" -> 30d, and `days: 90` stays the widest window so seeded data is always in range.
+- Time-window vocabulary mirrors the tools' filters (`24h / 7d / 30d / 60d / 90d`): the LLM maps "this week" -> 7d, "this month" -> 30d. Caveat surfaced by the probe: tools filter on two time bases - invocation tools on `_creationTime` (insert time, near now), message/usage tools on the frozen semantic `timestamp`/`createdAt` - so a relative window means different things per tool. Default the seed-frozen tools (e.g. `dailyUniqueUsers`) wide (`days: 90`); the Phase 1 steel-thread tool (`getAggregateStats`, no `after`) sidesteps this by being all-time.
 
 ### System prompt
 
 - A dynamic `buildSystemPrompt({ now })` pure function in `src/lib/prompt.ts`; the current date is injected so the LLM resolves relative windows ("this week" -> 7d) against the seeded data, not its training cutoff.
 - Tool descriptions live in the tool schemas (the `tools` param), not the prompt; the prompt owns only cross-cutting behavior.
-- Minimal, load-bearing rules only: role, injected date, ambiguity -> ask (Should #8), single-newline + GFM-table output (brief line 78), and an anti-fabrication rule ("only state figures returned by tools; never invent numbers").
+- Minimal, load-bearing rules only: role, injected date, ambiguity -> ask (Should #8), confirm-the-target-before-a-name-resolved-write (the intent layer of Mutation UX), single-newline + GFM-table output (brief line 78), and an anti-fabrication rule ("only state figures returned by tools; never invent numbers").
   The anti-fabrication rule is the highest-value line for a data tool - a confidently wrong number is worse than a crash.
 - No few-shot examples and no tool list in the prompt; add a rule only when a test or a real interaction proves the model needs it.
 
@@ -201,19 +204,19 @@ The transcript drill-in (the browsing component):
 Extends the Phase 1 approach: most new logic is pure and unit-tested, the loop is covered at the integration level, and E2E stays at one or two whole journeys.
 
 - Unit (pure calculations): `buildSystemPrompt({ now })` (date injected, load-bearing rules present); the transcript time-gap separator (separators appear only where the gap exceeds the threshold); the context-stubbing compactor (tool-result content stubbed, but the `tool_call`/`tool_result` pairing preserved - the test locks the reason we stub rather than delete); each new tool's `validate`.
-- Integration (the loop, driven by a scripted fake LLM that returns a queue of responses): the multi-step `listAll -> pause` happy path; the `MAX_STEPS` cap (a fake that always calls a tool -> graceful termination); errors-as-observations (a tool throw is fed back and the loop continues, while an unreachable-LLM error aborts); and the `enqueue` undo-send window with fake timers + a spied Convex client (fires once the window elapses, never fires if undo is triggered first).
+- Integration (the loop, driven by a scripted fake LLM that returns a queue of responses): the multi-step `listAll -> pause` happy path and the `listConversations -> listByChatJid` synthesis-resolution path; the wrong-target confirm (an ambiguous resolution makes the fake confirm before firing); the `MAX_STEPS` cap (a fake that always calls a tool -> graceful termination); errors-as-observations (a tool throw is fed back and the loop continues, while an unreachable-LLM error aborts); and the `enqueue` undo-send window with fake timers + a spied Convex client (fires once the window elapses, never fires if undo is triggered first).
 - E2E (Playwright): one happy-path journey (type -> tool pill -> streamed answer -> rendered chart/table) plus one drill-in (synthesis -> "View transcript" -> Sheet opens). No E2E per tool; confidence comes from unit + integration.
 
-| Phase 2 work item                                      | Convex function(s)                                                                      | Criteria closed                                                                                          |
-| ------------------------------------------------------ | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| Expand the tool registry to ~6 tools                   | the five below + the Phase 1 one                                                        | **Must #3** (≥5 tools) — the big remaining must-have                                                     |
-| Pause/resume a scheduled task (the mutation)           | `intelligenceTaskDefs.pause` / `resume`                                                 | **Should #10**                                                                                           |
-| Clarify ambiguous requests (which user? which window?) | loop/prompt UX, no new backend                                                          | **Should #8**                                                                                            |
-| Drill into a specific user's chat                      | `messages.listByChatJid`                                                                | **Nice #12**                                                                                             |
-| Reconstruct a user's reply thread on drill-in          | `messages.getReplyLineage`                                                              | **Should #7** (upgrades partial → full)                                                                  |
-| Multiple chart types (line, table) reusing Recharts    | `getAggregateTokenUsage` (line), `invocations.listRecent` + `getAggregateStats` (table) | **Nice #11**                                                                                             |
-| Cost breakdown by Go Deep run                          | `overnightBriefRuns.listCostRollups` then fan out to `getRunUsage`                      | **Nice #13**                                                                                             |
-| `npx shadcn init` + UI polish                          | none (UI layer)                                                                         | no numbered criterion, but directly serves evaluation axis #2 "does it feel like a real tool, not a toy" |
-| Write `DESIGN.md`                                      | none                                                                                    | **Nice #14**                                                                                             |
+| Phase 2 work item                                        | Convex function(s)                                                                                          | Criteria closed                                                                                          |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| Expand the tool registry to 7+ tools                     | the rows below + Phase 1 `getAggregateStats`                                                                | **Must #3** (>=5 tools) - the big remaining must-have                                                    |
+| Pause/resume a scheduled task (the mutation)             | `intelligenceTaskDefs.pause` / `resume`                                                                     | **Should #10**                                                                                           |
+| Clarify ambiguous requests (which user? which window?)   | loop/prompt UX, no new backend                                                                              | **Should #8**                                                                                            |
+| Drill into a specific user's chat                        | `groups.getAll` (resolver) -> `messages.listByChatJid`                                                      | **Nice #12**                                                                                             |
+| Reconstruct a user's reply thread on drill-in            | `messages.getReplyLineage`                                                                                  | **Should #7** (upgrades partial → full)                                                                  |
+| Multiple chart types (line, bar, table) reusing Recharts | `getAggregateTokenUsage` (line), `dashboard.dailyUniqueUsers` (daily bar), `invocations.listRecent` (table) | **Nice #11**                                                                                             |
+| Cost breakdown by Go Deep run                            | `overnightBriefRuns.listCostRollups` then fan out to `getRunUsage`                                          | **Nice #13**                                                                                             |
+| `npx shadcn init` + UI polish                            | none (UI layer)                                                                                             | no numbered criterion, but directly serves evaluation axis #2 "does it feel like a real tool, not a toy" |
+| Write `DESIGN.md`                                        | none                                                                                                        | **Nice #14**                                                                                             |
 
 Note: there is deliberately no whole-project `tsc` gate. The given `convex/` backend source does not type-check, and the generated `api.d.ts` pulls those modules into any `tsc` run, so a clean compile is impossible without editing given code. Type safety on `src/` comes from type-aware ESLint plus the editor's TypeScript server.
