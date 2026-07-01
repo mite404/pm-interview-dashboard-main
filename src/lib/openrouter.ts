@@ -254,5 +254,15 @@ export async function streamAnswer(
       onDelta(delta);
     }
   }
+
+  // Stream ended. Flush any bytes the decoder still holds, then treat the
+  // leftover as a complete final line - nothing more is coming to finish it.
+  // Guards a provider that omits the trailing newline on the last content line,
+  // or splits a multi-byte char across the final two reads (data loss otherwise).
+  const tail = buffer + decoder.decode();
+  for (const delta of extractTextDeltas(tail)) {
+    full += delta;
+    onDelta(delta);
+  }
   return full;
 }

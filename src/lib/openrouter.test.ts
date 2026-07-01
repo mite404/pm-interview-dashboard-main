@@ -1,8 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   drainSSEBuffer,
   extractTextDeltas,
   extractToolCall,
+  streamAnswer,
 } from "./openrouter";
 
 // A routing-turn response: the model chose a tool instead of answering.
@@ -102,5 +103,55 @@ describe("drainSSEBuffer", () => {
       deltas: ["hello"],
       rest: "",
     });
+  });
+});
+
+// Builds a fake `fetch` whose response body streams the given raw SSE chunks,
+// so streamAnswer's read loop runs without a network call.
+function stubFetchStreaming(chunks: string[]): void {
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk));
+      controller.close();
+    },
+  });
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, body }));
+}
+
+describe("streamAnswer", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("emits the final delta when the last line has no trailing newline", async () => {
+    stubFetchStreaming([
+      'data: {"choices":[{"delta":{"content":"Twenty-four"}}]}\n\n',
+      // The stream ends here with real content but no trailing newline.
+      'data: {"choices":[{"delta":{"content":" runs"}}]}',
+    ]);
+
+    const deltas: string[] = [];
+    const full = await streamAnswer([], (d) => {
+      deltas.push(d);
+    });
+
+    expect(deltas).toEqual(["Twenty-four", " runs"]);
+    expect(full).toBe("Twenty-four runs");
+  });
+
+  it("does not double-emit when the stream ends cleanly with [DONE]", async () => {
+    stubFetchStreaming([
+      'data: {"choices":[{"delta":{"content":"Twenty-four"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":" runs"}}]}\n\ndata: [DONE]\n\n',
+    ]);
+
+    const deltas: string[] = [];
+    const full = await streamAnswer([], (d) => {
+      deltas.push(d);
+    });
+
+    expect(deltas).toEqual(["Twenty-four", " runs"]);
+    expect(full).toBe("Twenty-four runs");
   });
 });
