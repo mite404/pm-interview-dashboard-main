@@ -16,6 +16,7 @@ import { decideTool, streamAnswer } from "./lib/openrouter";
 import type { WireMessage } from "./lib/openrouter";
 import { buildSystemPrompt } from "./lib/prompt";
 import { toAgentRunRows } from "./lib/agentRuns";
+import { toDailyUsersLineData } from "./lib/dailyUsersLineChart";
 import { toTaskRows } from "./lib/taskDefs";
 import { toTokenUsageSegments } from "./lib/tokenUsage";
 import {
@@ -39,6 +40,7 @@ import { TokenUsageCard } from "./components/TokenUsageCard";
 import { SidebarNav } from "./components/SidebarNav";
 import type { NavId } from "./components/SidebarNav";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
+import { DailyUsersLineChart } from "./components/DailyUsersLineChart";
 import { TaskControl } from "./components/TaskControl";
 import { DirectMessageComposer } from "./components/DirectMessageComposer";
 import { Transcript } from "./components/Transcript";
@@ -137,6 +139,8 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       return null;
     case "listCostRollups":
       return <CostBreakdown rows={result.data} />;
+    case "dailyUniqueUsers":
+      return <DailyUsersLineChart data={toDailyUsersLineData(result.data)} />;
   }
 }
 
@@ -342,7 +346,6 @@ export default function App() {
     <div style={appShell}>
       <SidebarNav active={activeNav} onSelect={handleNavSelect} />
       <div style={pageStyle}>
-        <h1 style={{ fontSize: 20 }}>PlanMonster Admin</h1>
         <div ref={listRef} style={listStyle}>
           {messages.map((message) => (
             <MessageView
