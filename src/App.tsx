@@ -14,6 +14,7 @@ import { decideTool, streamAnswer } from "./lib/openrouter";
 import type { WireMessage } from "./lib/openrouter";
 import { buildSystemPrompt } from "./lib/prompt";
 import { toAgentRunRows } from "./lib/agentRuns";
+import { toTaskRows } from "./lib/taskDefs";
 import { toTokenUsageSegments } from "./lib/tokenUsage";
 import {
   makeRunTool,
@@ -23,6 +24,7 @@ import {
 } from "./lib/tools";
 import type { ChatMessage, ToolResult, ToolStatus } from "./lib/types";
 import { AgentRunsTable } from "./components/AgentRunsTable";
+import { TaskDefsTable } from "./components/TaskDefsTable";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
@@ -109,6 +111,8 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       // result still rides on the message as the "synthesis answer" discriminant
       // for the actions seam below.
       return null;
+    case "listAll":
+      return <TaskDefsTable rows={toTaskRows(result.data)} />;
   }
 }
 

@@ -23,13 +23,14 @@ export type AggregateStats = FunctionReturnType<
 
 // A discriminated union keyed by `tool` - one member per wired tool. `data` is
 // both what the loop feeds back to the LLM and what the shell renders from. The
-// union grows one member per tool as they are wired (dailyUniqueUsers: 14b).
+// union grows one member per tool as they are wired.
 export type ToolResult =
   | { tool: "getAggregateStats"; data: AggregateStats }
   | { tool: "getAggregateTokenUsage"; data: AggregateTokenUsage }
   | { tool: "listRecent"; data: InvocationsList }
   | { tool: "listConversations"; data: Conversation[] }
-  | { tool: "listByChatJid"; data: MessagesList };
+  | { tool: "listByChatJid"; data: MessagesList }
+  | { tool: "listAll"; data: TaskDefsList };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -37,10 +38,6 @@ export type ToolResult =
 export type AggregateTokenUsage = FunctionReturnType<
   typeof api.invocationEvents.getAggregateTokenUsage
 >; // -> { inputTokens, outputTokens, totalTokens, cacheCreationInputTokens, cacheReadInputTokens }
-
-export type DailyUniqueUsers = FunctionReturnType<
-  typeof api.dashboard.dailyUniqueUsers
->; // -> { day: string /* YYYY-MM-DD */; uniqueUsers: number }[]
 
 export type InvocationsList = FunctionReturnType<
   typeof api.invocations.listRecent
@@ -63,6 +60,10 @@ export interface Conversation {
 export type MessagesList = FunctionReturnType<
   typeof api.messages.listByChatJid
 >; // -> Doc<"messages">[] (oldest-first): content, senderName, isFromMe, timestamp, ...
+
+export type TaskDefsList = FunctionReturnType<
+  typeof api.intelligenceTaskDefs.listAll
+>; // -> Doc<"intelligenceTaskDefs">[]: name, status, cronExpression, timezone, ...
 
 // The cross-layer contract between the calc (`toStatusBars` in tools.ts) and
 // the pure chart (commit 7): both import it from here. The transform runs in
@@ -94,6 +95,8 @@ export type ListRecentArgs = FunctionArgs<typeof api.invocations.listRecent>; //
 export type ListConversationsArgs = FunctionArgs<typeof api.groups.getAll>; // -> {} (no args)
 
 export type ListByChatJidArgs = FunctionArgs<typeof api.messages.listByChatJid>; // -> { chatJid: string; limit?: number }
+
+export type ListAllArgs = FunctionArgs<typeof api.intelligenceTaskDefs.listAll>; // -> {} (no args)
 
 // The tool advertises a superset of the Convex args: `status` is an LLM-facing
 // filter with no backend equivalent (listRecent has no status arg), applied to

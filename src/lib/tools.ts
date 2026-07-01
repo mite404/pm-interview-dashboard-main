@@ -16,12 +16,14 @@ import type {
   GroupsList,
   InvocationStatus,
   InvocationsList,
+  ListAllArgs,
   ListByChatJidArgs,
   ListConversationsArgs,
   ListRecentToolArgs,
   MessagesList,
   RegisteredTool,
   StatusBar,
+  TaskDefsList,
   ToolDeps,
   ToolResult,
 } from "./types";
@@ -391,6 +393,41 @@ export const listByChatJidTool: RegisteredTool = {
     })),
 };
 
+// ── listAll: the scheduled intelligence tasks (mutation companion read) ──
+// The read half of the write flow: the model lists tasks, reads a name -> _id,
+// then (in a later PR) pauses/resumes by that id. Returns the raw docs so the
+// _id/name/status/cronExpression shape stays stable for the mutation to resolve
+// against. Takes no arguments.
+
+export function validateListAll(raw: unknown): ListAllArgs {
+  const record = asArgsRecord(raw, "listAll");
+  assertKnownKeys(record, [], "listAll");
+  return {};
+}
+
+function runListAll(_args: ListAllArgs, deps: ToolDeps): Promise<TaskDefsList> {
+  return deps.convex.query(api.intelligenceTaskDefs.listAll, {});
+}
+
+export const listAllTool: RegisteredTool = {
+  name: "listAll",
+  description:
+    "List all scheduled intelligence tasks, each with its name, status " +
+    "(active/paused/cancelled), schedule, and what it does. Use this to answer " +
+    "'what tasks do we have?' and to resolve a task name to the id a " +
+    "pause/resume would target. Takes no arguments.",
+  parameters: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runListAll(validateListAll(rawArgs), deps).then((data) => ({
+      tool: "listAll",
+      data,
+    })),
+};
+
 // ── registry wiring (the two facets the shell hands the loop) ────────────
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
@@ -401,6 +438,7 @@ export const registry: RegisteredTool[] = [
   listRecentTool,
   listConversationsTool,
   listByChatJidTool,
+  listAllTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).

@@ -5,6 +5,7 @@ import {
   toConversations,
   toStatusBars,
   validateAggregateStats,
+  validateListAll,
   validateListByChatJid,
   validateListConversations,
   validateListRecent,
@@ -146,6 +147,17 @@ describe("validateListByChatJid (listByChatJid args)", () => {
     expect(() =>
       validateListByChatJid({ chatJid: "maya@web", days: 7 }),
     ).toThrow(/days/);
+  });
+});
+
+describe("validateListAll (listAll args)", () => {
+  it("returns empty args when the LLM passes none", () => {
+    expect(validateListAll({})).toEqual({});
+    expect(validateListAll(undefined)).toEqual({});
+  });
+
+  it("throws on any argument, since the tool takes none", () => {
+    expect(() => validateListAll({ status: "active" })).toThrow(/status/);
   });
 });
 
