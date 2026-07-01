@@ -30,7 +30,9 @@ export type ToolResult =
   | { tool: "listRecent"; data: InvocationsList }
   | { tool: "listConversations"; data: Conversation[] }
   | { tool: "listByChatJid"; data: MessagesList }
-  | { tool: "listAll"; data: TaskDefsList };
+  | { tool: "listAll"; data: TaskDefsList }
+  | { tool: "pause"; data: TaskDef }
+  | { tool: "resume"; data: TaskDef };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -102,6 +104,13 @@ export type ListAllArgs = FunctionArgs<typeof api.intelligenceTaskDefs.listAll>;
 // filter with no backend equivalent (listRecent has no status arg), applied to
 // the returned array by the tool's `run`. `validate` splits it back out.
 export type ListRecentToolArgs = ListRecentArgs & { status?: InvocationStatus };
+
+// Mutation tools (PR 3): pause / resume share one arg and return the same
+// patched task doc (name + status), sourced from the typed `api` so `data` can
+// never drift from the backend return shape.
+export type PauseArgs = FunctionArgs<typeof api.intelligenceTaskDefs.pause>;
+export type ResumeArgs = FunctionArgs<typeof api.intelligenceTaskDefs.resume>;
+export type TaskDef = FunctionReturnType<typeof api.intelligenceTaskDefs.pause>; // -> Doc | null
 
 // A registry entry the loop dispatches uniformly. `execute` validates the raw
 // LLM args, runs the tool, and wraps the return into the discriminated
