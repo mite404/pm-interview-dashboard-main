@@ -193,6 +193,9 @@ export async function decideTool(
   messages: WireMessage[],
   tools: OpenRouterTool[],
 ): Promise<ToolCall | null> {
+  console.log(
+    `[llm] routing turn · model ${MODEL} · ${String(tools.length)} tool(s) offered`,
+  );
   const res = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: authHeaders(),
@@ -228,6 +231,7 @@ export async function streamAnswer(
   messages: WireMessage[],
   onDelta: (text: string) => void,
 ): Promise<string> {
+  console.log(`[llm] answer turn (streaming) · model ${MODEL}`);
   const res = await fetch(OPENROUTER_URL, {
     method: "POST",
     headers: authHeaders(),

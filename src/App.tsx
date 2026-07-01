@@ -32,10 +32,23 @@ const SYSTEM_PROMPT =
 
 // Built once: the loop's real services, wired to the live Convex client. Only
 // tests swap these for fakes (loop.test.ts).
+const baseRunTool = makeRunTool(registry, { convex });
+
+// Decorate the injected runTool with console logging so each tool call and its
+// result are visible in devtools. Because runTool is a dependency, this wraps it
+// at the composition root without touching the loop or tools.ts - and it logs
+// every tool by name, so it covers getAggregateStats now and future tools free.
+const runTool: LoopDeps["runTool"] = async (name, rawArgs) => {
+  console.log(`[tool] ${name} called with`, rawArgs);
+  const result = await baseRunTool(name, rawArgs);
+  console.log(`[tool] ${name} returned`, result.data);
+  return result;
+};
+
 const deps: LoopDeps = {
   decideTool,
   streamAnswer,
-  runTool: makeRunTool(registry, { convex }),
+  runTool,
   tools: toOpenRouterTools(registry),
 };
 

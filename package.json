@@ -13,7 +13,7 @@
     "test:e2e": "playwright test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "check:backend": "bun run scripts/check-backend.ts",
+    "probe:backend": "bun run scripts/probe-tools.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky"
