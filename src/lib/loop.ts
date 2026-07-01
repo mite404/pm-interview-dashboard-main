@@ -1,21 +1,21 @@
-// Phase 1 action tier (T3): the conversational orchestrator. It ties the injected
-// pieces together(decide a tool, run it, feed the result back,
-// stream the synthesized answer) and owns none of
-// them: every dependency arrives as a parameter, so the loop is exercised in
-// isolation with fakes (loop.test.ts) and wired to the real services in the
-// shell (App.tsx, commit 8).
+// The conversational orchestrator (T3). It ties the injected pieces together
+// (decide a tool, run it, feed the result back, repeat, then stream the answer)
+// and owns none of them: every dependency arrives as a parameter, so the loop is
+// exercised in isolation with fakes (loop.test.ts) and wired to the real services
+// in the shell (App.tsx).
 //
-// Built as a bounded while loop that runs only tool calls, then a terminal
-// streamAnswer. Phase 1 caps it at one iteration (maxSteps = 1: decide -> run
-// -> answer); Phase 2 is purely additive - raise the cap and the same loop
-// chains multiple tools. Error ownership is split: a *tool* error is surfaced
-// here (graceful message, no crash); an *LLM-channel* error (unreachable
-// OpenRouter) propagates to the shell's top-level try/catch.
+// A bounded while loop that runs tool calls until the model stops requesting
+// them or MAX_STEPS is hit, then a terminal streamAnswer. Error ownership is
+// split three ways: a *tool* error (validate/run) is fed back to the model as
+// that tool's result so it can self-correct, and the loop continues; hitting
+// MAX_STEPS ends the loop with a reason-bearing note so the model wraps up; only
+// an *LLM-channel* error (unreachable OpenRouter) propagates to the shell and
+// aborts the turn.
 //
-// The single change that *would* be required to render two
-// charts from one turn is accumulating a `ToolResult[]` instead of one value -
-// but that feature is not scoped, so pre-building the array now would be
-// speculative complexity. We keep the single reassignment (YAGNI).
+// The single change that *would* be required to render two charts from one turn
+// is accumulating a `ToolResult[]` instead of one value - not scoped, so we keep
+// the single reassignment (the last tool's result, which is the renderable one
+// in a resolver-then-action chain). YAGNI.
 
 import type { OpenRouterTool, ToolCall, WireMessage } from "./openrouter";
 import type { ToolResult, ToolStatus } from "./types";
@@ -34,7 +34,7 @@ export interface LoopDeps {
     onDelta: (text: string) => void,
   ) => Promise<string>;
   tools: OpenRouterTool[];
-  maxSteps?: number; // Phase 1 default 1; Phase 2 raises it
+  maxSteps?: number; // default MAX_STEPS (5); tests inject a small value
 }
 
 // Per-turn UI hooks: live streamed fragments and tool-status pill transitions.
@@ -74,7 +74,19 @@ function toolResultMessage(callId: string, result: ToolResult): WireMessage {
   };
 }
 
+// A tool error, fed back as that tool's result (paired by tool_call_id) so the
+// model reads the reason and can self-correct on the next step.
+function toolErrorMessage(callId: string, message: string): WireMessage {
+  return {
+    role: "tool",
+    content: `Error: ${message}`,
+    tool_call_id: callId,
+  };
+}
+
 // ── runTurn: orchestrate one conversational turn ─────────────────────────
+
+const MAX_STEPS = 5; // bounds per-message cost and guarantees termination
 
 export async function runTurn(
   messages: WireMessage[],
@@ -82,29 +94,44 @@ export async function runTurn(
   deps: LoopDeps,
 ): Promise<TurnResult> {
   const wire = [...messages];
-  const maxSteps = deps.maxSteps ?? 1;
+  const maxSteps = deps.maxSteps ?? MAX_STEPS;
   let toolResult: ToolResult | undefined;
+  let answered = false; // did the model choose to stop calling tools?
 
   let step = 0;
   while (step < maxSteps) {
     step++;
+    // An LLM-channel error here propagates and aborts the turn - only tool
+    // errors are caught and fed back below.
     const toolCall = await deps.decideTool(wire, deps.tools);
-    if (!toolCall) break; // the model wants to answer directly
+    if (!toolCall) {
+      answered = true;
+      break;
+    }
 
     hooks.onToolStatus({ phase: "calling", tool: toolCall.name });
+    // Push the assistant tool-call message before running, so the tool message
+    // that follows (success OR error) is correctly paired by tool_call_id.
+    wire.push(assistantToolCallMessage(toolCall));
     try {
       toolResult = await deps.runTool(toolCall.name, toolCall.args);
+      hooks.onToolStatus({ phase: "done", tool: toolCall.name });
+      wire.push(toolResultMessage(toolCall.id, toolResult));
     } catch (error) {
-      // Phase 1: surface the reason and stop. Phase 2 feeds it back as the
-      // tool result so the model can self-correct, then continues the loop.
+      // Tool-layer error: feed the reason back so the model can self-correct
+      // next step, and continue - do not abort the turn.
       const message = error instanceof Error ? error.message : String(error);
       hooks.onToolStatus({ phase: "error", tool: toolCall.name, message });
-      return { text: `I hit an error running ${toolCall.name}: ${message}` };
+      wire.push(toolErrorMessage(toolCall.id, message));
     }
-    hooks.onToolStatus({ phase: "done", tool: toolCall.name });
+  }
 
-    wire.push(assistantToolCallMessage(toolCall));
-    wire.push(toolResultMessage(toolCall.id, toolResult));
+  // Cap hit (the model still wanted tools): nudge it to wrap up gracefully.
+  if (!answered) {
+    wire.push({
+      role: "system",
+      content: `You have reached the ${String(maxSteps)}-step tool limit. Answer now using the information you already gathered; do not request more tools.`,
+    });
   }
 
   const text = await deps.streamAnswer(wire, hooks.onDelta);

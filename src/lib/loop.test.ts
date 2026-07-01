@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { runTurn } from "./loop";
 import type { LoopDeps, TurnHooks } from "./loop";
-import type { WireMessage } from "./openrouter";
+import type { ToolCall, WireMessage } from "./openrouter";
 import type { AggregateStats, ToolResult, ToolStatus } from "./types";
 
 const seededStats: AggregateStats = {
@@ -15,6 +15,13 @@ const statsResult: ToolResult = {
   tool: "getAggregateStats",
   data: seededStats,
 };
+
+// A scripted fake LLM: returns each queued decision in turn, then null (answer)
+// once the script is exhausted. This is how we drive real multi-step turns.
+function scriptDecideTool(script: (ToolCall | null)[]): LoopDeps["decideTool"] {
+  let i = 0;
+  return () => Promise.resolve(i < script.length ? script[i++] : null);
+}
 
 // Collects what the UI would see: streamed fragments and pill transitions.
 function makeHooks() {
@@ -32,7 +39,6 @@ function makeHooks() {
 }
 
 // Sensible fakes for every dependency; each test overrides just what it needs.
-// Plain (non-async) functions returning Promises: the fakes do no real awaiting.
 function makeDeps(over: Partial<LoopDeps>): LoopDeps {
   return {
     decideTool: () => Promise.resolve(null),
@@ -47,11 +53,13 @@ function makeDeps(over: Partial<LoopDeps>): LoopDeps {
 }
 
 describe("runTurn", () => {
-  it("runs the tool, feeds the result back, then streams the answer", async () => {
+  it("runs a tool, feeds the result back with a matching id, then answers", async () => {
     let answered: WireMessage[] = [];
     const deps = makeDeps({
-      decideTool: () =>
-        Promise.resolve({ id: "c1", name: "getAggregateStats", args: {} }),
+      decideTool: scriptDecideTool([
+        { id: "c1", name: "getAggregateStats", args: {} },
+        null,
+      ]),
       runTool: () => Promise.resolve(statsResult),
       streamAnswer: (messages, onDelta) => {
         answered = messages;
@@ -73,14 +81,8 @@ describe("runTurn", () => {
       { phase: "calling", tool: "getAggregateStats" },
       { phase: "done", tool: "getAggregateStats" },
     ]);
-    // The tool result was fed back into the conversation before synthesizing.
-    expect(answered.some((m) => m.role === "tool")).toBe(true);
-
-    // The API 400s a `role: "tool"` message unless it is immediately preceded
-    // by the assistant message that made the call, and its `tool_call_id`
-    // equals that call's `id`. Lock the ordering + id pairing as a regression
-    // guard: reordering the two pushes in runTurn, or a mismatched id, would
-    // slip past the `.some` check above but fail against the real API.
+    // The assistant tool-call message immediately precedes its tool result, and
+    // the tool_call_id matches - the real API 400s otherwise (regression guard).
     const [assistantMsg, toolMsg] = answered.slice(-2);
     expect(assistantMsg.role).toBe("assistant");
     expect(toolMsg.role).toBe("tool");
@@ -89,10 +91,35 @@ describe("runTurn", () => {
     expect(toolMsg.tool_call_id).toBe(callId);
   });
 
+  it("chains multiple tools across steps, feeding each result back before answering", async () => {
+    let answered: WireMessage[] = [];
+    const deps = makeDeps({
+      decideTool: scriptDecideTool([
+        { id: "c1", name: "listConversations", args: {} },
+        { id: "c2", name: "getAggregateStats", args: {} },
+        null,
+      ]),
+      runTool: () => Promise.resolve(statsResult),
+      streamAnswer: (messages, onDelta) => {
+        answered = messages;
+        onDelta("done");
+        return Promise.resolve("done");
+      },
+    });
+    const { hooks, statuses } = makeHooks();
+
+    const result = await runTurn([{ role: "user", content: "x" }], hooks, deps);
+
+    expect(result.text).toBe("done");
+    // Both tool exchanges were fed back before the model answered.
+    expect(answered.filter((m) => m.role === "tool")).toHaveLength(2);
+    expect(statuses.filter((s) => s.phase === "calling")).toHaveLength(2);
+    expect(statuses.filter((s) => s.phase === "done")).toHaveLength(2);
+  });
+
   it("streams a direct answer and shows no pill when no tool is called", async () => {
     const deps = makeDeps({
       decideTool: () => Promise.resolve(null),
-      runTool: () => Promise.reject(new Error("must not run")),
       streamAnswer: (_messages, onDelta) => {
         onDelta("hello!");
         return Promise.resolve("hello!");
@@ -112,35 +139,78 @@ describe("runTurn", () => {
     expect(statuses).toEqual([]);
   });
 
-  it("surfaces a tool error to the user without streaming or crashing", async () => {
-    let streamed = false;
+  it("terminates at the step cap when the model keeps requesting tools", async () => {
+    let decideCount = 0;
+    let answered: WireMessage[] = [];
     const deps = makeDeps({
-      decideTool: () =>
-        Promise.resolve({
-          id: "c1",
+      decideTool: () => {
+        decideCount++;
+        return Promise.resolve({
+          id: `c${String(decideCount)}`,
           name: "getAggregateStats",
-          args: { bad: 1 },
-        }),
+          args: {},
+        });
+      },
+      runTool: () => Promise.resolve(statsResult),
+      streamAnswer: (messages, onDelta) => {
+        answered = messages;
+        onDelta("capped");
+        return Promise.resolve("capped");
+      },
+      maxSteps: 3,
+    });
+    const { hooks } = makeHooks();
+
+    const result = await runTurn([{ role: "user", content: "x" }], hooks, deps);
+
+    expect(decideCount).toBe(3); // bounded - no runaway loop
+    expect(result.text).toBe("capped"); // still answers gracefully
+    // Reason-bearing: a step-limit note is injected before the final answer.
+    expect(
+      answered.some(
+        (m) => m.role === "system" && /step/i.test(m.content ?? ""),
+      ),
+    ).toBe(true);
+  });
+
+  it("feeds a tool error back and continues instead of aborting", async () => {
+    let answered: WireMessage[] = [];
+    const deps = makeDeps({
+      decideTool: scriptDecideTool([
+        { id: "c1", name: "getAggregateStats", args: { bad: 1 } },
+        null,
+      ]),
       runTool: () => Promise.reject(new Error("unknown argument: bad")),
-      streamAnswer: () => {
-        streamed = true;
-        return Promise.resolve("");
+      streamAnswer: (messages, onDelta) => {
+        answered = messages;
+        onDelta("recovered");
+        return Promise.resolve("recovered");
       },
     });
     const { hooks, statuses } = makeHooks();
 
     const result = await runTurn([{ role: "user", content: "x" }], hooks, deps);
 
-    expect(result.text).toContain("unknown argument: bad");
-    expect(result.toolResult).toBeUndefined();
-    expect(streamed).toBe(false);
-    expect(statuses).toEqual([
-      { phase: "calling", tool: "getAggregateStats" },
-      {
-        phase: "error",
-        tool: "getAggregateStats",
-        message: "unknown argument: bad",
-      },
-    ]);
+    expect(result.text).toBe("recovered"); // did NOT abort
+    // The error was fed back as the tool's result so the model can self-correct.
+    const toolMsg = answered.find((m) => m.role === "tool");
+    expect(toolMsg?.content).toContain("unknown argument: bad");
+    expect(statuses).toContainEqual({
+      phase: "error",
+      tool: "getAggregateStats",
+      message: "unknown argument: bad",
+    });
+  });
+
+  it("aborts the turn when the LLM channel itself fails", async () => {
+    const deps = makeDeps({
+      decideTool: () =>
+        Promise.reject(new Error("OpenRouter routing call failed: 500")),
+    });
+    const { hooks } = makeHooks();
+
+    await expect(
+      runTurn([{ role: "user", content: "x" }], hooks, deps),
+    ).rejects.toThrow(/routing call failed/);
   });
 });
