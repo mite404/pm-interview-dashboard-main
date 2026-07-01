@@ -21,6 +21,7 @@ import {
 } from "./lib/tools";
 import type { ChatMessage, ToolResult, ToolStatus } from "./lib/types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Markdown } from "./components/Markdown";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
 
 // ── config + injected dependencies ───────────────────────────────────────
@@ -81,7 +82,7 @@ function MessageView({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
   return (
     <div style={isUser ? userBubble : assistantBubble}>
-      <div>{message.text}</div>
+      {isUser ? <div>{message.text}</div> : <Markdown>{message.text}</Markdown>}
       {message.toolResult && (
         <ErrorBoundary
           fallback={
