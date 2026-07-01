@@ -4,6 +4,18 @@ One entry per commit, newest on top. Rationale: `docs/PLAN.md`.
 
 ---
 
+## Commit 7 - StatusBreakdownChart + Recharts (T4)
+
+`src/components/StatusBreakdownChart.tsx`: a pure presentational bar chart. Recharts installed just-in-time.
+
+- Props: an already-transformed `StatusBar[]` (imported from `types.ts`, never `tools.ts`) + the `total` / `avgDuration` KPI scalars. No logic - `toStatusBars` runs in the shell (commit 8), so the chart just draws.
+- Render test (`StatusBreakdownChart.test.tsx`, first jsdom test): mocks Recharts to simple markers (it needs a real layout engine jsdom lacks) and asserts what's ours - the KPI text renders and all three bars reach the chart. The visual bars are verified by eye / the e2e (commit 9), not here.
+- Vitest test infra, just-in-time: `@testing-library/react` + `jsdom`; the render test opts into jsdom per-file (`// @vitest-environment jsdom`) so the calc/parse tests stay in the fast `node` env; JSX is transformed by Vitest 4's built-in oxc (no React plugin, no deprecation warnings).
+
+Gate: `bun run test` 22/22 (pristine), `src/` lints clean, `bun run build` bundles.
+
+---
+
 ## Commit 6 - The conversational loop (T3)
 
 `src/lib/loop.ts`: `runTurn` - the orchestrator that ties the pieces together (decide a tool -> run it -> feed the result back -> stream the answer). Fully dependency-injected: it imports no services, so it runs against fakes in tests and real ones in the shell.
