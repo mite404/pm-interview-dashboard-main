@@ -19,6 +19,7 @@ vi.mock("recharts", () => ({
     </div>
   ),
   Bar: () => null,
+  LabelList: () => null,
   XAxis: () => null,
   YAxis: () => null,
   CartesianGrid: () => null,

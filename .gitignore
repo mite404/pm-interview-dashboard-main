@@ -8,11 +8,11 @@ node_modules/
 # Logs
 *.log
 
-# Test artifacts
-coverage/              # Vitest --coverage
-test-results/          # Playwright
-playwright-report/     # Playwright
-playwright/.cache/     # Playwright
+# Test artifacts (coverage = Vitest; the rest = Playwright)
+coverage/
+test-results/
+playwright-report/
+playwright/.cache/
 
 # my project scoped IDE settings
 .zed

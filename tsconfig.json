@@ -14,5 +14,13 @@
     "strict": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "convex", "scripts", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "convex",
+    "scripts",
+    "e2e",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ]
 }
