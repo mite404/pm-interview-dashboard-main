@@ -5,12 +5,14 @@
 // touch the network and stay deterministic to test.
 
 import { api } from "../../convex/_generated/api";
+import type { OpenRouterTool } from "./openrouter";
 import type {
   AggregateStats,
   AggregateStatsArgs,
   StatusBar,
   Tool,
   ToolDeps,
+  ToolResult,
 } from "./types";
 
 // ── validate: the LLM -> Convex trust boundary the brief grades ──────────
@@ -137,3 +139,42 @@ export const getAggregateStatsTool: Tool<AggregateStatsArgs, AggregateStats> = {
   validate,
   run,
 };
+
+// ── registry wiring (the two facets the shell hands the loop) ────────────
+// Phase 1 has one tool, so the registry is concretely typed. The builders read
+// only the LLM-facing metadata / dispatch by name, so this stays wiring - it is
+// proven by the loop integration test (with fakes) and the e2e, not unit-tested.
+
+export const registry: Tool<AggregateStatsArgs, AggregateStats>[] = [
+  getAggregateStatsTool,
+];
+
+// Advertise the registry to the model (the `tools` param for decideTool).
+export function toOpenRouterTools(
+  tools: Tool<AggregateStatsArgs, AggregateStats>[],
+): OpenRouterTool[] {
+  return tools.map((tool) => ({
+    type: "function",
+    function: {
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.parameters,
+    },
+  }));
+}
+
+// Execute a tool by the name the LLM called, returning the typed result the
+// shell renders and the loop feeds back. An unknown name throws (a hallucinated
+// tool), which the loop surfaces gracefully.
+export function makeRunTool(
+  tools: Tool<AggregateStatsArgs, AggregateStats>[],
+  deps: ToolDeps,
+): (name: string, rawArgs: unknown) => Promise<ToolResult> {
+  return async (name, rawArgs) => {
+    const tool = tools.find((candidate) => candidate.name === name);
+    if (!tool) throw new Error(`unknown tool: ${name}`);
+    // Phase 1: one tool -> one ToolResult shape. Phase 2 maps name -> shape.
+    const data = await tool.run(tool.validate(rawArgs), deps);
+    return { tool: "getAggregateStats", data };
+  };
+}

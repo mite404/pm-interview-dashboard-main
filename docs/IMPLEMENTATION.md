@@ -4,6 +4,21 @@ One entry per commit, newest on top. Rationale: `docs/PLAN.md`.
 
 ---
 
+## Commit 8 - The app shell: wire the thread end to end (T4)
+
+`src/App.tsx`: the composition root. Input -> `runTurn` -> streamed text + tool-status pill + rendered chart. The thread now runs top to bottom.
+
+- Builds the loop's real deps: `decideTool`/`streamAnswer` (OpenRouter) + `makeRunTool(registry, { convex })` + `toOpenRouterTools(registry)` - the `runTool`/tools builders deferred from commit 6, added to `tools.ts`.
+- Two stores kept distinct: the on-screen `ChatMessage[]` and the per-turn OpenRouter `WireMessage[]` (system prompt + prose history) fed to the loop.
+- Render boundary: for a tool result it calls `toStatusBars(result.data)` in the shell (never in the chart) and passes `StatusBar[]` + KPI scalars into `StatusBreakdownChart`. Phase 1 has one `ToolResult` shape so it renders directly; Phase 2's union will force a discriminant switch (compiler-enforced).
+- `ErrorBoundary` (minimal class) wraps each rendered chart -> a render throw degrades to "couldn't render this result" instead of unmounting the app. Covered by the component-bomb test (`ErrorBoundary.test.tsx`): throwing child -> fallback shown; silences React's `console.error` and marks the re-dispatched `error` event handled to keep output pristine.
+- Minimal top-level system prompt (anti-fabrication rule); dynamic `buildSystemPrompt` is Phase 2. `main.tsx` drops the unused `ConvexProvider` (the loop uses `ConvexHttpClient` directly).
+- No unit test for `App`/the registry builders (wiring) - proven by the commit-9 e2e.
+
+Gate: `bun run test` 24/24 (pristine), `src/` lints clean, `bun run build` bundles (530 kB - Recharts now included; lazy-load is a Phase 2 optimization).
+
+---
+
 ## Commit 7 - StatusBreakdownChart + Recharts (T4)
 
 `src/components/StatusBreakdownChart.tsx`: a pure presentational bar chart. Recharts installed just-in-time.
