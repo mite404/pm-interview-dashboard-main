@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { extractTextDeltas, extractToolCall } from "./openrouter";
+import {
+  drainSSEBuffer,
+  extractTextDeltas,
+  extractToolCall,
+} from "./openrouter";
 
 // A routing-turn response: the model chose a tool instead of answering.
 const toolCallResponse = {
@@ -13,7 +17,7 @@ const toolCallResponse = {
             id: "call_1",
             type: "function",
             function: {
-              name: "invocations.getAggregateStats",
+              name: "getAggregateStats",
               arguments: '{"after":1000}',
             },
           },
@@ -33,7 +37,7 @@ describe("extractToolCall", () => {
   it("extracts the first tool call with its arguments parsed to an object", () => {
     expect(extractToolCall(toolCallResponse)).toEqual({
       id: "call_1",
-      name: "invocations.getAggregateStats",
+      name: "getAggregateStats",
       args: { after: 1000 },
     });
   });
@@ -75,5 +79,28 @@ describe("extractTextDeltas", () => {
       "data: [DONE]",
     ].join("\n\n");
     expect(extractTextDeltas(sse)).toEqual(["ok"]);
+  });
+});
+
+describe("drainSSEBuffer", () => {
+  it("emits a delta once its line is complete and leaves no leftover", () => {
+    expect(
+      drainSSEBuffer("", 'data: {"choices":[{"delta":{"content":"hi"}}]}\n'),
+    ).toEqual({ deltas: ["hi"], rest: "" });
+  });
+
+  it("holds a line split across two chunks until the rest arrives", () => {
+    // First read ends mid-JSON, before any newline: nothing is emitted yet.
+    const first = drainSSEBuffer(
+      "",
+      'data: {"choices":[{"delta":{"content":"hel',
+    );
+    expect(first.deltas).toEqual([]);
+
+    // The carried-over leftover + the rest of the line now completes it.
+    expect(drainSSEBuffer(first.rest, 'lo"}}]}\n')).toEqual({
+      deltas: ["hello"],
+      rest: "",
+    });
   });
 });
