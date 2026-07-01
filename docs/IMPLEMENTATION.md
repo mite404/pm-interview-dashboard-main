@@ -4,6 +4,19 @@ One entry per commit, newest on top. Rationale: `docs/PLAN.md`.
 
 ---
 
+## Commit 6 - The conversational loop (T3)
+
+`src/lib/loop.ts`: `runTurn` - the orchestrator that ties the pieces together (decide a tool -> run it -> feed the result back -> stream the answer). Fully dependency-injected: it imports no services, so it runs against fakes in tests and real ones in the shell.
+
+- Bounded `while` loop over tool calls, then a terminal `streamAnswer`. Phase 1 caps at `maxSteps = 1` (decide -> run -> answer); Phase 2 is purely additive (raise the cap to chain tools).
+- Error ownership split: a **tool** error is surfaced here (graceful message, pill -> `error`, no stream, no crash); an **LLM-channel** error propagates to the shell's top-level try/catch (commit 8).
+- `loop.test.ts` (3 integration tests, TDD): happy path (tool runs, result fed back into the messages, answer streams, pill `calling -> done`), no-tool path (direct answer, no pill), and the error path (tool throws -> reason surfaced, no stream). Fakes stand in for whole subsystems - real behavior, not mock-call assertions.
+- Real `runTool` / tools-array builders are deferred to the shell (commit 8); the loop needs only the injected fakes here.
+
+Gate: `bun run test` 21/21, `src/` lints clean, `bun run build` bundles.
+
+---
+
 ## Commit 5 - OpenRouter calls + tool-name convention (T3)
 
 The two LLM network calls, plus the bare tool-name decision going live.
