@@ -14,6 +14,8 @@ import type {
   AggregateTokenUsage,
   AggregateTokenUsageArgs,
   Conversation,
+  EnqueueArgs,
+  EnqueuedMessageId,
   GroupsList,
   InvocationStatus,
   InvocationsList,
@@ -527,6 +529,92 @@ export const resumeTool: RegisteredTool = {
     })),
 };
 
+// ── enqueue: send an admin direct message (PR 3) ─────────────────────────
+// Structural validate (layer 1): a well-formed group id, a known channel, and a
+// non-empty body. It does NOT resolve the group by name or check delivery - the
+// group is resolved to an id upstream (like pause/resume), and delivery is inert
+// on the preview (no channel creds), so this is a judgment showcase, not a live
+// send. Word-count / group-existence are enforced server-side by the mutation.
+const CHANNELS = ["whatsapp", "sms", "imessage"] as const;
+
+export function validateEnqueue(raw: unknown): EnqueueArgs {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("enqueue args must be an object");
+  }
+  const record = raw as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!["groupId", "selectedChannel", "messageBody"].includes(key)) {
+      throw new Error(`enqueue: unknown argument: ${key}`);
+    }
+  }
+  const { groupId, selectedChannel, messageBody } = record;
+  if (typeof groupId !== "string" || groupId.length === 0) {
+    throw new Error("enqueue: `groupId` must be a non-empty id string");
+  }
+  if (
+    typeof selectedChannel !== "string" ||
+    !CHANNELS.includes(selectedChannel as (typeof CHANNELS)[number])
+  ) {
+    throw new Error(
+      `enqueue: \`selectedChannel\` must be one of ${CHANNELS.join(", ")}`,
+    );
+  }
+  if (typeof messageBody !== "string" || messageBody.trim().length === 0) {
+    throw new Error("enqueue: `messageBody` must be a non-empty string");
+  }
+  return {
+    groupId: groupId as Id<"registeredGroups">,
+    selectedChannel: selectedChannel as (typeof CHANNELS)[number],
+    messageBody,
+  };
+}
+
+/**
+ * Enqueues an admin direct message. The one side effect: a Convex mutation.
+ * @param args - validated args from {@link validateEnqueue}
+ * @param deps - injected dependencies (the Convex client)
+ * @returns the id of the inserted `adminDirectMessages` row
+ */
+export function runEnqueue(
+  args: EnqueueArgs,
+  deps: ToolDeps,
+): Promise<EnqueuedMessageId> {
+  return deps.convex.mutation(api.adminDirectMessages.enqueue, args);
+}
+
+export const enqueueTool: RegisteredTool = {
+  name: "enqueue",
+  description:
+    "Queue an admin direct message to a group over a chosen channel " +
+    "(whatsapp, sms, or imessage). Takes the group's id (resolve it first), " +
+    "the channel, and the message body. Confirm the target before sending.",
+  parameters: {
+    type: "object",
+    properties: {
+      groupId: {
+        type: "string",
+        description: "The id of the group to message - never a group name.",
+      },
+      selectedChannel: {
+        type: "string",
+        enum: [...CHANNELS],
+        description: "The delivery channel.",
+      },
+      messageBody: {
+        type: "string",
+        description: "The message text (max 250 words, enforced server-side).",
+      },
+    },
+    required: ["groupId", "selectedChannel", "messageBody"],
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runEnqueue(validateEnqueue(rawArgs), deps).then((data) => ({
+      tool: "enqueue",
+      data,
+    })),
+};
+
 // ── registry wiring (the two facets the shell hands the loop) ────────────
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
@@ -540,6 +628,7 @@ export const registry: RegisteredTool[] = [
   listAllTool,
   pauseTool,
   resumeTool,
+  enqueueTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).

@@ -32,7 +32,8 @@ export type ToolResult =
   | { tool: "listByChatJid"; data: MessagesList }
   | { tool: "listAll"; data: TaskDefsList }
   | { tool: "pause"; data: TaskDef }
-  | { tool: "resume"; data: TaskDef };
+  | { tool: "resume"; data: TaskDef }
+  | { tool: "enqueue"; data: EnqueuedMessageId };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -111,6 +112,11 @@ export type ListRecentToolArgs = ListRecentArgs & { status?: InvocationStatus };
 export type PauseArgs = FunctionArgs<typeof api.intelligenceTaskDefs.pause>;
 export type ResumeArgs = FunctionArgs<typeof api.intelligenceTaskDefs.resume>;
 export type TaskDef = FunctionReturnType<typeof api.intelligenceTaskDefs.pause>; // -> Doc | null
+
+export type EnqueueArgs = FunctionArgs<typeof api.adminDirectMessages.enqueue>;
+export type EnqueuedMessageId = FunctionReturnType<
+  typeof api.adminDirectMessages.enqueue
+>; // -> Id<"adminDirectMessages">
 
 // A registry entry the loop dispatches uniformly. `execute` validates the raw
 // LLM args, runs the tool, and wraps the return into the discriminated

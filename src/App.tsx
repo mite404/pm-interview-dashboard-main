@@ -32,6 +32,7 @@ import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
 import { TaskControl } from "./components/TaskControl";
+import { DirectMessageComposer } from "./components/DirectMessageComposer";
 
 // ── config + injected dependencies ───────────────────────────────────────
 // Built once: the loop's real services, wired to the live Convex client. Only
@@ -119,6 +120,7 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       return <TaskDefsTable rows={toTaskRows(result.data)} />;
     case "pause":
     case "resume":
+    case "enqueue":
       return null;
   }
 }
@@ -318,6 +320,7 @@ export default function App() {
         </button>
       </form>
       <TaskControlPanel />
+      <DirectMessageComposer />
     </div>
   );
 }

@@ -7,8 +7,10 @@ import type { ToolCall, WireMessage } from "./openrouter";
 import {
   makeRunTool,
   registry,
+  runEnqueue,
   runPause,
   runResume,
+  validateEnqueue,
   validateTaskDefId,
 } from "./tools";
 import type { TaskDef, TaskDefsList, ToolDeps, ToolStatus } from "./types";
@@ -110,6 +112,63 @@ describe("runPause / runResume (spied Convex)", () => {
       api.intelligenceTaskDefs.resume,
       { taskDefId: pausedTask._id },
     );
+  });
+});
+
+// ── enqueue: the admin direct-message write ──────────────────────────────
+describe("validateEnqueue (structural check)", () => {
+  const ok = {
+    groupId: "g1",
+    selectedChannel: "whatsapp",
+    messageBody: "hello",
+  };
+
+  it("accepts well-formed args", () => {
+    expect(validateEnqueue(ok)).toEqual(ok);
+  });
+
+  it("throws on a missing/empty group id", () => {
+    expect(() => validateEnqueue({ ...ok, groupId: "" })).toThrow(/groupId/);
+  });
+
+  it("throws on an unknown channel", () => {
+    expect(() =>
+      validateEnqueue({ ...ok, selectedChannel: "carrier-pigeon" }),
+    ).toThrow(/selectedChannel/);
+  });
+
+  it("throws on an empty message body", () => {
+    expect(() => validateEnqueue({ ...ok, messageBody: "   " })).toThrow(
+      /messageBody/,
+    );
+  });
+
+  it("throws on an unknown key, naming it", () => {
+    expect(() => validateEnqueue({ ...ok, cc: "x" })).toThrow(/cc/);
+  });
+});
+
+describe("runEnqueue (spied Convex)", () => {
+  it("calls the enqueue mutation with the args and returns the new row id", async () => {
+    const insertedId = "dm_row_1";
+    const mutation = vi.fn().mockResolvedValue(insertedId);
+    const deps: ToolDeps = {
+      convex: { mutation, query: vi.fn() } as unknown as ConvexHttpClient,
+    };
+    // Build typed args through validate itself (the trust boundary).
+    const args = validateEnqueue({
+      groupId: "g1",
+      selectedChannel: "sms",
+      messageBody: "your brief is ready",
+    });
+
+    const result = await runEnqueue(args, deps);
+
+    expect(mutation).toHaveBeenCalledExactlyOnceWith(
+      api.adminDirectMessages.enqueue,
+      args,
+    );
+    expect(result).toBe(insertedId);
   });
 });
 
