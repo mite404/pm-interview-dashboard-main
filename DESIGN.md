@@ -94,3 +94,7 @@ Decision: I'm wiring up a frontend to a pre-existing backend Convex server that'
 There will be no build step for this repo so relying on ESLint for type safety.
 
 Why: `convex/_generated/api.d.ts` drags the convex source into any `tsc` run
+
+## Cut
+
+`DailyUsersBarChart` + `toDailyUsersBarData` + tests. Dead code that satisfies no criterion, duplicates a chart type you already have, and renders empty on the demo data.

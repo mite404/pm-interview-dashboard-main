@@ -60,6 +60,31 @@ const PALETTE: Record<ChipStatus, ChipPalette> = {
   },
 };
 
+// The chip alone (color + label + icon), split out so the agent-runs table (06)
+// reuses the exact same four-state token map inline in a row, without the mono
+// method line the chat pill wants below it.
+export function StatusChip({ status }: { status: ChipStatus }) {
+  const { label, fg, bg, Icon } = PALETTE[status];
+  return (
+    <span
+      className={cn(
+        "hd-cond inline-flex items-center gap-[7px] px-[10px] py-[5px] text-[11px]",
+        fg,
+        bg,
+        status === "running" && "animate-dc-pulse",
+      )}
+    >
+      <Icon
+        className={cn(
+          status === "queued" ? "size-2" : "size-[11px] stroke-[3]",
+          status === "running" && "animate-dc-spin",
+        )}
+      />
+      {label}
+    </span>
+  );
+}
+
 interface ToolCallStatusProps {
   status: ChipStatus;
   /** Convex tool/method name shown mono below the chip, e.g. "groups.listSignedUpUsers". */
@@ -69,26 +94,9 @@ interface ToolCallStatusProps {
 }
 
 export function ToolCallStatus({ status, method, meta }: ToolCallStatusProps) {
-  const { label, fg, bg, Icon } = PALETTE[status];
-
   return (
     <div className="inline-flex flex-col items-start gap-1">
-      <span
-        className={cn(
-          "hd-cond inline-flex items-center gap-[7px] px-[10px] py-[5px] text-[11px]",
-          fg,
-          bg,
-          status === "running" && "animate-dc-pulse",
-        )}
-      >
-        <Icon
-          className={cn(
-            status === "queued" ? "size-2" : "size-[11px] stroke-[3]",
-            status === "running" && "animate-dc-spin",
-          )}
-        />
-        {label}
-      </span>
+      <StatusChip status={status} />
       <span
         className={cn(
           "font-mono text-[11.5px]",

@@ -13,6 +13,9 @@ import type { LoopDeps } from "./lib/loop";
 import { decideTool, streamAnswer } from "./lib/openrouter";
 import type { WireMessage } from "./lib/openrouter";
 import { buildSystemPrompt } from "./lib/prompt";
+import { toAgentRunRows } from "./lib/agentRuns";
+import { toTaskRows } from "./lib/taskDefs";
+import { toTokenUsageSegments } from "./lib/tokenUsage";
 import {
   makeRunTool,
   registry,
@@ -20,8 +23,11 @@ import {
   toStatusBars,
 } from "./lib/tools";
 import type { ChatMessage, ToolResult, ToolStatus } from "./lib/types";
+import { AgentRunsTable } from "./components/AgentRunsTable";
+import { TaskDefsTable } from "./components/TaskDefsTable";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
+import { TokenUsageCard } from "./components/TokenUsageCard";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
 
 // ── config + injected dependencies ───────────────────────────────────────
@@ -68,14 +74,46 @@ function toolPillLabel(status: ToolStatus): string {
 // we render it directly; when Phase 2 adds tools, `result.data` becomes a union
 // and the compiler forces a discriminant switch here.
 function ToolResultChart({ result }: { result: ToolResult }) {
-  const stats = result.data;
-  return (
-    <StatusBreakdownChart
-      bars={toStatusBars(stats)}
-      total={stats.total}
-      avgDuration={stats.avgDuration}
-    />
-  );
+  // Discriminate on the tool, then transform the raw result into the props each
+  // pure component wants (the transform runs in the shell, never in the chart).
+  // The switch is exhaustive over the union - a new ToolResult member won't
+  // compile until it's handled here.
+  switch (result.tool) {
+    case "getAggregateStats": {
+      const stats = result.data;
+      return (
+        <StatusBreakdownChart
+          bars={toStatusBars(stats)}
+          total={stats.total}
+          avgDuration={stats.avgDuration}
+        />
+      );
+    }
+    case "getAggregateTokenUsage":
+      // The tool defaults to all-time (after: 0), so label it honestly rather
+      // than the design's "Last 30 days" (this-month is 0 on the frozen seed).
+      return (
+        <TokenUsageCard
+          period="All-time"
+          {...toTokenUsageSegments(result.data)}
+        />
+      );
+    case "listRecent":
+      return <AgentRunsTable rows={toAgentRunRows(result.data)} />;
+    case "listConversations":
+      // A resolver, not a visual: the model reads the name/jid list to resolve a
+      // conversation, then answers in prose (or chains into listByChatJid). No
+      // inline chart, so keep the exhaustive switch honest with an explicit null.
+      return null;
+    case "listByChatJid":
+      // Synthesis renders as prose via the Markdown path, not a chart; the raw
+      // transcript is a separate, explicitly-requested drill-in (PR 4). The
+      // result still rides on the message as the "synthesis answer" discriminant
+      // for the actions seam below.
+      return null;
+    case "listAll":
+      return <TaskDefsTable rows={toTaskRows(result.data)} />;
+  }
 }
 
 function MessageView({ message }: { message: ChatMessage }) {
@@ -91,6 +129,14 @@ function MessageView({ message }: { message: ChatMessage }) {
         >
           <ToolResultChart result={message.toolResult} />
         </ErrorBoundary>
+      )}
+      {!isUser && message.toolResult?.tool === "listByChatJid" && (
+        <div style={actionsSlotStyle} data-testid="synthesis-actions">
+          {/* SEAM: PR 4 drill-in action attaches here.
+              This is a synthesis answer (its toolResult is a listByChatJid
+              window). PR 4's "View full transcript" button mounts in this slot
+              and reads message.toolResult.data to populate the Transcript Sheet. */}
+        </div>
       )}
     </div>
   );
@@ -254,6 +300,9 @@ const pillStyle: CSSProperties = {
   marginBottom: 6,
 };
 const fallbackStyle: CSSProperties = { color: "#b91c1c", fontSize: 13 };
+// The synthesis-answer actions slot (SEAM for PR 4). Empty flex row so it has
+// zero footprint until PR 4 mounts the "View full transcript" button here.
+const actionsSlotStyle: CSSProperties = { display: "flex", gap: 8 };
 const formStyle: CSSProperties = { display: "flex", gap: 8 };
 const inputStyle: CSSProperties = {
   flex: 1,

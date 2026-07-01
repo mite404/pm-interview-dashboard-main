@@ -156,6 +156,27 @@ Suggested PR seams: 10-13 (foundation: design system, prompt, loop, markdown), 1
 25. (T3->T4 action->UI) Cost breakdown by Go Deep run (Nice #13): `overnightBriefRuns.listCostRollups` then fan out to `getRunUsage` per run, + render.
 26. (T5 verify) Final `DESIGN.md` editing pass + full verification (lint exits 0, unit + integration + e2e green, `vite build` clean, `check:backend` green).
 
+### Worktree parallelization
+
+Foundation (commits 10-13 plus the `02`/`03`/`04` components) is merged to `main`, so PR 3 (commits 19-20) and PR 4 (commits 21-26) can run in parallel worktrees forked off `main` while PR 2 (`add-tools-charts`, commits 14-18) continues.
+Both fork off `main` - which carries the locked `Tool` / `ToolResult` / `WireMessage` interfaces, the design system, and the `02` primitive - not off the in-progress PR 2 branch, which would drag PR 2's churn into PR 3 / PR 4.
+Current branch and cwd do not affect the fork point: `-b <name> main` names the base explicitly, and `git worktree add` never touches the current checkout; use absolute paths so cwd cannot shift where the worktree lands.
+
+```
+git worktree add /Users/ea/Programming/web/fractal/pm-add-mutations       -b add-mutations       main
+git worktree add /Users/ea/Programming/web/fractal/pm-add-drill-in-polish  -b add-drill-in-polish  main
+```
+
+`add-mutations` (PR 3, commits 19-20) builds against the locked interfaces now: `pause` / `resume` / `enqueue` tools (validate + run), the Task Control card (design `07`: status badge, Pause/Resume swap, success toast), the undo-send timer + fake-timer test, and the three-layer safety.
+Its one PR-2 dependency is stubbed: a hardcoded `listAll` task list of the real shape drives the `listAll -> pause` flow, swapped for the real tool after PR 2 merges.
+
+`add-drill-in-polish` (PR 4, commits 21-25; commit 26 is the closeout, not parallel) is stub-free for the Transcript Sheet (21), Navbar (23, design `09`), context compactor (24), cost breakdown (25), and the `getReplyLineage` tool.
+Its one PR-2 dependency is stubbed: a fake synthesis answer drives the drill-in wiring (22), wired to the real trigger after PR 2's synthesis (commit 17) merges.
+
+Sync order is PR 2 -> PR 3 -> PR 4.
+After PR 2 merges to `main`, rebase each worktree branch onto `main`, replace the stubs with the real tools, then merge.
+The only conflict surface is the shared tool registry / App layout; keep it append-only (one entry or one module per tool) so three-way merges stay trivial.
+
 ### The multi-step agentic loop (hardening)
 
 - Name -> id resolution is LLM-driven (Approach A), used for both writes (`listAll` -> `pause`) and the synthesis read (`listConversations` -> `listByChatJid`): the model calls the companion list tool, reads the result, then calls the target tool with the resolved id/jid.

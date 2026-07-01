@@ -21,25 +21,49 @@ export type AggregateStats = FunctionReturnType<
   typeof api.invocations.getAggregateStats
 >; // -> { total, active, succeeded, finishedCount, avgDuration }
 
-export interface ToolResult {
-  tool: "getAggregateStats";
-  data: AggregateStats;
-}
+// A discriminated union keyed by `tool` - one member per wired tool. `data` is
+// both what the loop feeds back to the LLM and what the shell renders from. The
+// union grows one member per tool as they are wired.
+export type ToolResult =
+  | { tool: "getAggregateStats"; data: AggregateStats }
+  | { tool: "getAggregateTokenUsage"; data: AggregateTokenUsage }
+  | { tool: "listRecent"; data: InvocationsList }
+  | { tool: "listConversations"; data: Conversation[] }
+  | { tool: "listByChatJid"; data: MessagesList }
+  | { tool: "listAll"; data: TaskDefsList };
 
-// Phase 2 chart tools (design-handoff pass): typed the same way as
-// `AggregateStats` above, sourced from the typed `api` so the two card/chart
-// components built this pass (03 token-usage, 04 bar-chart) can never drift
-// from the live backend shape. Not yet added to the `ToolResult` union or the
-// tool registry - that wiring is the chat-integration pass (PLAN.md commit 14),
-// this pass only builds the presentational components + their pure transforms.
+// Phase 2 tool returns, typed from the `api` so the card/chart components can
+// never drift from the live backend shape.
 
 export type AggregateTokenUsage = FunctionReturnType<
   typeof api.invocationEvents.getAggregateTokenUsage
 >; // -> { inputTokens, outputTokens, totalTokens, cacheCreationInputTokens, cacheReadInputTokens }
 
-export type DailyUniqueUsers = FunctionReturnType<
-  typeof api.dashboard.dailyUniqueUsers
->; // -> { day: string /* YYYY-MM-DD */; uniqueUsers: number }[]
+export type InvocationsList = FunctionReturnType<
+  typeof api.invocations.listRecent
+>; // -> Doc<"agentInvocations">[] (newest first)
+
+// The run-status enum, derived from the doc so it can never drift from the
+// backend's `v.union(...)`: "pending" | "running" | "succeeded" | "failed".
+export type InvocationStatus = InvocationsList[number]["status"];
+
+export type GroupsList = FunctionReturnType<typeof api.groups.getAll>; // -> Doc<"registeredGroups">[]
+
+// The narrowed resolver payload: `listConversations` drops the rest of the
+// group doc and keeps only the `name` (for the LLM to match the admin's
+// phrasing) and the `jid` (the bridge other tools consume as `chatJid`).
+export interface Conversation {
+  name: string;
+  jid: string;
+}
+
+export type MessagesList = FunctionReturnType<
+  typeof api.messages.listByChatJid
+>; // -> Doc<"messages">[] (oldest-first): content, senderName, isFromMe, timestamp, ...
+
+export type TaskDefsList = FunctionReturnType<
+  typeof api.intelligenceTaskDefs.listAll
+>; // -> Doc<"intelligenceTaskDefs">[]: name, status, cronExpression, timezone, ...
 
 // The cross-layer contract between the calc (`toStatusBars` in tools.ts) and
 // the pure chart (commit 7): both import it from here. The transform runs in
@@ -62,19 +86,35 @@ export type AggregateStatsArgs = FunctionArgs<
   typeof api.invocations.getAggregateStats
 >; // -> { after?: number; groupFolder?: string }
 
-export interface Tool<Args, Data> {
+export type AggregateTokenUsageArgs = FunctionArgs<
+  typeof api.invocationEvents.getAggregateTokenUsage
+>; // -> { after: number; groupFolder?: string }
+
+export type ListRecentArgs = FunctionArgs<typeof api.invocations.listRecent>; // -> { limit?: number; after?: number }
+
+export type ListConversationsArgs = FunctionArgs<typeof api.groups.getAll>; // -> {} (no args)
+
+export type ListByChatJidArgs = FunctionArgs<typeof api.messages.listByChatJid>; // -> { chatJid: string; limit?: number }
+
+export type ListAllArgs = FunctionArgs<typeof api.intelligenceTaskDefs.listAll>; // -> {} (no args)
+
+// The tool advertises a superset of the Convex args: `status` is an LLM-facing
+// filter with no backend equivalent (listRecent has no status arg), applied to
+// the returned array by the tool's `run`. `validate` splits it back out.
+export type ListRecentToolArgs = ListRecentArgs & { status?: InvocationStatus };
+
+// A registry entry the loop dispatches uniformly. `execute` validates the raw
+// LLM args, runs the tool, and wraps the return into the discriminated
+// `ToolResult` - one closure, so a heterogeneous registry (tools with different
+// arg/return shapes) stays uniformly typed. Each tool's `validate` is still a
+// separate export, unit-tested as the graded LLM->Convex boundary.
+export interface RegisteredTool {
   name: string;
   description: string;
   /** JSON Schema advertised to OpenRouter's `tools` param. */
   parameters: Record<string, unknown>;
-  /**
-   * Narrows untyped LLM-emitted JSON to typed `Args`.
-   * @throws if the args are malformed or carry an unknown key - the throw feeds
-   *   the agentic loop so the model can self-correct.
-   */
-  validate: (raw: unknown) => Args;
-  /** Runs the tool's one side effect (the Convex call) via the injected `deps`. */
-  run: (args: Args, deps: ToolDeps) => Promise<Data>;
+  /** @throws on malformed args (fed back to the loop) or a failed Convex call. */
+  execute: (rawArgs: unknown, deps: ToolDeps) => Promise<ToolResult>;
 }
 
 // ── Chat UI messages (what the admin sees) ───────────────────────────────
