@@ -44,7 +44,9 @@ export function formatTokenCount(n: number, unit: "M" | "K" | "none"): string {
   return String(n);
 }
 
-function pickUnit(total: number): "M" | "K" | "none" {
+// Exported for reuse by the cost breakdown, which formats each run's total with
+// the same M/K thresholds the token-usage card uses.
+export function pickUnit(total: number): "M" | "K" | "none" {
   if (total >= 1_000_000) return "M";
   if (total >= 1_000) return "K";
   return "none";

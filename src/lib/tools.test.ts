@@ -9,6 +9,7 @@ import {
   validateListByChatJid,
   validateListConversations,
   validateListRecent,
+  validateReplyLineage,
   validateTokenUsage,
 } from "./tools";
 
@@ -184,6 +185,56 @@ describe("toConversations", () => {
       { name: "Maya Patel", jid: "maya@web" },
       { name: "Sam Rivera", jid: "sam@sms" },
     ]);
+  });
+});
+
+describe("validateReplyLineage (getReplyLineage args)", () => {
+  const base = { chatJid: "15234567890@c.us", replyToMsgId: "msg_42" };
+
+  it("returns the required strings when only they are given", () => {
+    expect(validateReplyLineage(base)).toEqual(base);
+  });
+
+  it("passes through valid optional caps", () => {
+    expect(
+      validateReplyLineage({ ...base, maxMessages: 4, maxChars: 2000 }),
+    ).toEqual({ ...base, maxMessages: 4, maxChars: 2000 });
+  });
+
+  it("throws when a required string is missing", () => {
+    expect(() => validateReplyLineage({ chatJid: "x" })).toThrow(
+      /replyToMsgId/,
+    );
+    expect(() => validateReplyLineage({ replyToMsgId: "y" })).toThrow(
+      /chatJid/,
+    );
+  });
+
+  it("throws when a required string is empty", () => {
+    expect(() => validateReplyLineage({ ...base, chatJid: "" })).toThrow(
+      /chatJid/,
+    );
+  });
+
+  it("throws when a cap is not a positive integer", () => {
+    expect(() => validateReplyLineage({ ...base, maxMessages: 0 })).toThrow(
+      /maxMessages/,
+    );
+    expect(() => validateReplyLineage({ ...base, maxChars: 1.5 })).toThrow(
+      /maxChars/,
+    );
+    expect(() => validateReplyLineage({ ...base, maxMessages: -3 })).toThrow(
+      /maxMessages/,
+    );
+  });
+
+  it("throws on an unknown key, naming it so the LLM can self-correct", () => {
+    expect(() => validateReplyLineage({ ...base, depth: 3 })).toThrow(/depth/);
+  });
+
+  it("throws when given a non-object", () => {
+    expect(() => validateReplyLineage("nope")).toThrow();
+    expect(() => validateReplyLineage([])).toThrow();
   });
 });
 
