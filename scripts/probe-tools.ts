@@ -81,7 +81,7 @@ async function probeTools(): Promise<void> {
     const failed = s.finishedCount - s.succeeded;
     return {
       hasData: s.total > 0,
-      detail: `total ${String(s.total)} = succeeded ${String(s.succeeded)} / active ${String(s.active)} / failed ${String(failed)}`,
+      detail: `total ${String(s.total)} = succeeded ${String(s.succeeded)} / active ${String(s.active)} / failed ${String(failed)}; avg ${s.avgDuration.toFixed(1)}ms`,
     };
   });
 
