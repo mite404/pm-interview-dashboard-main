@@ -12,8 +12,11 @@ import type {
   AggregateStatsArgs,
   AggregateTokenUsage,
   AggregateTokenUsageArgs,
+  Conversation,
+  GroupsList,
   InvocationStatus,
   InvocationsList,
+  ListConversationsArgs,
   ListRecentToolArgs,
   RegisteredTool,
   StatusBar,
@@ -277,6 +280,55 @@ export const listRecentTool: RegisteredTool = {
     })),
 };
 
+// ── listConversations: the name/jid resolver (groups.getAll, narrowed) ───
+// The one tool exposing the jid/chatJid bridge: it narrows the full group doc
+// to { name, jid } so the model can resolve an admin's phrasing ("Maya") to the
+// `jid` that listByChatJid consumes as `chatJid`. The companion read for the
+// synthesis flow, the way listAll is the companion for the mutation.
+
+export function validateListConversations(raw: unknown): ListConversationsArgs {
+  const record = asArgsRecord(raw, "listConversations");
+  // Takes no arguments; any key is a hallucination, thrown back so the model
+  // drops it and retries.
+  assertKnownKeys(record, [], "listConversations");
+  return {};
+}
+
+/**
+ * Narrows raw groups to the resolver payload the model reads: just the display
+ * name and the jid, dropping folder/triggerPattern/personId/etc.
+ * @param groups - the typed `groups.getAll` return (`GroupsList`)
+ */
+export function toConversations(groups: GroupsList): Conversation[] {
+  return groups.map((group) => ({ name: group.name, jid: group.jid }));
+}
+
+async function runListConversations(
+  _args: ListConversationsArgs,
+  deps: ToolDeps,
+): Promise<Conversation[]> {
+  const groups = await deps.convex.query(api.groups.getAll, {});
+  return toConversations(groups);
+}
+
+export const listConversationsTool: RegisteredTool = {
+  name: "listConversations",
+  description:
+    "List all registered conversations (chats/channels), each with its display " +
+    "`name` and its `jid`. Use this to resolve a person or conversation name " +
+    "(e.g. 'Maya') to the `jid` that other tools take as `chatJid`. Takes no " +
+    "arguments.",
+  parameters: {
+    type: "object",
+    properties: {},
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runListConversations(validateListConversations(rawArgs), deps).then(
+      (data) => ({ tool: "listConversations", data }),
+    ),
+};
+
 // ── registry wiring (the two facets the shell hands the loop) ────────────
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
@@ -285,6 +337,7 @@ export const registry: RegisteredTool[] = [
   getAggregateStatsTool,
   getAggregateTokenUsageTool,
   listRecentTool,
+  listConversationsTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).

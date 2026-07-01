@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { AggregateStats } from "./types";
+import type { Id } from "../../convex/_generated/dataModel";
+import type { AggregateStats, GroupsList } from "./types";
 import {
+  toConversations,
   toStatusBars,
   validateAggregateStats,
+  validateListConversations,
   validateListRecent,
   validateTokenUsage,
 } from "./tools";
@@ -101,6 +104,43 @@ describe("validateListRecent (listRecent args)", () => {
     expect(() => validateListRecent({ groupFolder: "maya" })).toThrow(
       /groupFolder/,
     );
+  });
+});
+
+describe("validateListConversations (listConversations args)", () => {
+  it("returns empty args when the LLM passes none", () => {
+    expect(validateListConversations({})).toEqual({});
+    expect(validateListConversations(undefined)).toEqual({});
+  });
+
+  it("throws on any argument, since the tool takes none", () => {
+    expect(() => validateListConversations({ jid: "maya@web" })).toThrow(/jid/);
+  });
+});
+
+describe("toConversations", () => {
+  // A minimally-complete registeredGroups doc; the transform only reads name/jid.
+  const group = (over: Partial<GroupsList[number]>): GroupsList[number] => ({
+    _id: "g1" as Id<"registeredGroups">,
+    _creationTime: 0,
+    jid: "maya@web",
+    name: "Maya Patel",
+    folder: "maya-web",
+    triggerPattern: ".*",
+    personId: "p1" as Id<"persons">,
+    ...over,
+  });
+
+  it("narrows each group to just name and jid, dropping the rest", () => {
+    expect(
+      toConversations([
+        group({ name: "Maya Patel", jid: "maya@web" }),
+        group({ name: "Sam Rivera", jid: "sam@sms", folder: "sam-sms" }),
+      ]),
+    ).toEqual([
+      { name: "Maya Patel", jid: "maya@web" },
+      { name: "Sam Rivera", jid: "sam@sms" },
+    ]);
   });
 });
 

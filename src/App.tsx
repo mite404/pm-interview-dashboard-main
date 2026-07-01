@@ -98,6 +98,11 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       );
     case "listRecent":
       return <AgentRunsTable rows={toAgentRunRows(result.data)} />;
+    case "listConversations":
+      // A resolver, not a visual: the model reads the name/jid list to resolve a
+      // conversation, then answers in prose (or chains into listByChatJid). No
+      // inline chart, so keep the exhaustive switch honest with an explicit null.
+      return null;
   }
 }
 

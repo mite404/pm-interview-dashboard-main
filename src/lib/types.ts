@@ -27,7 +27,8 @@ export type AggregateStats = FunctionReturnType<
 export type ToolResult =
   | { tool: "getAggregateStats"; data: AggregateStats }
   | { tool: "getAggregateTokenUsage"; data: AggregateTokenUsage }
-  | { tool: "listRecent"; data: InvocationsList };
+  | { tool: "listRecent"; data: InvocationsList }
+  | { tool: "listConversations"; data: Conversation[] };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -47,6 +48,16 @@ export type InvocationsList = FunctionReturnType<
 // The run-status enum, derived from the doc so it can never drift from the
 // backend's `v.union(...)`: "pending" | "running" | "succeeded" | "failed".
 export type InvocationStatus = InvocationsList[number]["status"];
+
+export type GroupsList = FunctionReturnType<typeof api.groups.getAll>; // -> Doc<"registeredGroups">[]
+
+// The narrowed resolver payload: `listConversations` drops the rest of the
+// group doc and keeps only the `name` (for the LLM to match the admin's
+// phrasing) and the `jid` (the bridge other tools consume as `chatJid`).
+export interface Conversation {
+  name: string;
+  jid: string;
+}
 
 // The cross-layer contract between the calc (`toStatusBars` in tools.ts) and
 // the pure chart (commit 7): both import it from here. The transform runs in
@@ -74,6 +85,8 @@ export type AggregateTokenUsageArgs = FunctionArgs<
 >; // -> { after: number; groupFolder?: string }
 
 export type ListRecentArgs = FunctionArgs<typeof api.invocations.listRecent>; // -> { limit?: number; after?: number }
+
+export type ListConversationsArgs = FunctionArgs<typeof api.groups.getAll>; // -> {} (no args)
 
 // The tool advertises a superset of the Convex args: `status` is an LLM-facing
 // filter with no backend equivalent (listRecent has no status arg), applied to
