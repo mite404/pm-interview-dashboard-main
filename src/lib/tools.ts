@@ -7,6 +7,7 @@
 
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
+import { runCostBreakdown, validateCostRollups } from "./cost";
 import type { OpenRouterTool } from "./openrouter";
 import type {
   AggregateStats,
@@ -731,6 +732,43 @@ export const getReplyLineageTool: RegisteredTool = {
     })),
 };
 
+// ── listCostRollups: per-run Go Deep cost (PR 4) ─────────────────────────
+// The tool's action lives in cost.ts (it fans out list -> per-run usage), so
+// only the LLM-facing metadata is assembled here. `data` is the merged cost rows
+// the shell renders as a cost panel.
+export const listCostRollupsTool: RegisteredTool = {
+  name: "listCostRollups",
+  description:
+    "Per-run token cost of overnight 'Go Deep' brief runs: each recent run with " +
+    "its task, group, and REAL token totals (input / output / cache). Use for " +
+    "questions like 'what did each Go Deep run cost?' or cost-by-run breakdowns.",
+  parameters: {
+    type: "object",
+    properties: {
+      after: {
+        type: "number",
+        description:
+          "Optional unix-ms lower bound on a run's creation time. Omit for " +
+          "all-time.",
+      },
+      groupFolder: {
+        type: "string",
+        description: "Optional group folder to scope to. Omit for all groups.",
+      },
+      limit: {
+        type: "number",
+        description: "Optional cap on how many recent runs to include.",
+      },
+    },
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runCostBreakdown(validateCostRollups(rawArgs), deps).then((data) => ({
+      tool: "listCostRollups",
+      data,
+    })),
+};
+
 // ── registry wiring (the two facets the shell hands the loop) ────────────
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
@@ -746,6 +784,7 @@ export const registry: RegisteredTool[] = [
   resumeTool,
   enqueueTool,
   getReplyLineageTool,
+  listCostRollupsTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).

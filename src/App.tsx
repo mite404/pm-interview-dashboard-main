@@ -32,6 +32,7 @@ import {
   fixtureDateLabel,
   fixtureMessages,
 } from "./lib/transcriptFixture";
+import { CostBreakdown } from "./components/CostBreakdown";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
@@ -134,6 +135,8 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       // Reply-chain context the model reads to answer in prose (and that drives
       // the transcript drill-in), so it renders nothing inline.
       return null;
+    case "listCostRollups":
+      return <CostBreakdown rows={result.data} />;
   }
 }
 

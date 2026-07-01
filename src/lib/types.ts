@@ -28,6 +28,26 @@ export type ReplyLineage = FunctionReturnType<
   typeof api.messages.getReplyLineage
 >; // -> { msgId?: string; content: string; role: "assistant" | "user"; timestamp: number }[]
 
+// The cost-breakdown tool (PR 4). listCostRollups returns each Go Deep run's
+// metadata but ZEROED usage; getRunUsage carries the real per-run token totals.
+// `RunUsage` is one run's rolled-up usage; `CostBreakdownRow` is the merged
+// render row the fan-out produces (metadata + the run's real `totalUsage`).
+export type RunUsage = FunctionReturnType<
+  typeof api.overnightBriefRuns.getRunUsage
+>;
+export type CostRollup = FunctionReturnType<
+  typeof api.overnightBriefRuns.listCostRollups
+>[number];
+
+export interface CostBreakdownRow {
+  briefRunId: string;
+  runKey: string;
+  taskName: string;
+  groupFolder: string;
+  createdAt: number;
+  usage: RunUsage["totalUsage"]; // the REAL totals from getRunUsage, not the zeroed rollup
+}
+
 // A discriminated union keyed by `tool` - one member per wired tool. `data` is
 // both what the loop feeds back to the LLM and what the shell renders from. The
 // union grows one member per tool as they are wired.
@@ -41,7 +61,8 @@ export type ToolResult =
   | { tool: "pause"; data: TaskDef }
   | { tool: "resume"; data: TaskDef }
   | { tool: "enqueue"; data: EnqueuedMessageId }
-  | { tool: "getReplyLineage"; data: ReplyLineage };
+  | { tool: "getReplyLineage"; data: ReplyLineage }
+  | { tool: "listCostRollups"; data: CostBreakdownRow[] };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -129,6 +150,10 @@ export type EnqueuedMessageId = FunctionReturnType<
 export type ReplyLineageArgs = FunctionArgs<
   typeof api.messages.getReplyLineage
 >; // -> { chatJid: string; replyToMsgId: string; maxMessages?: number; maxChars?: number }
+
+export type CostRollupsArgs = FunctionArgs<
+  typeof api.overnightBriefRuns.listCostRollups
+>; // -> { after: number; groupFolder?: string; limit?: number }
 
 // A registry entry the loop dispatches uniformly. `execute` validates the raw
 // LLM args, runs the tool, and wraps the return into the discriminated
