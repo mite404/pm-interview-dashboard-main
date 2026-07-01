@@ -4,6 +4,22 @@ One entry per commit, newest on top. Rationale: `docs/PLAN.md`.
 
 ---
 
+## Commit 5 - OpenRouter calls + tool-name convention (T3)
+
+The two LLM network calls, plus the bare tool-name decision going live.
+
+- `decideTool(messages, tools)` - non-streamed routing turn; `parallel_tool_calls: false` (at most one call), returns `extractToolCall(...)`. Throws on a failed call (unreachable LLM aborts the turn).
+- `streamAnswer(messages, onDelta)` - streamed answer turn; calls `onDelta` per fragment, returns the full text.
+- `drainSSEBuffer(buffer, chunk)` - **pure**, test-driven (2 tests): reassembles `data:` lines split across network reads (the stateful gluing `extractTextDeltas` punts on). Extracted precisely because the e2e mock may never split a line, so this real risk gets its own check.
+- `decideTool` / `streamAnswer` are thin I/O - no unit test (mocking `fetch` asserts the mock), proven by the commit-9 e2e.
+- Naming convention live: `getAggregateStatsTool` assembled in `tools.ts` with `name: "getAggregateStats"` (bare fn name); `ToolResult.tool` and the two `openrouter.test.ts` fixtures updated to match. Dotted path survives only as the `api.invocations.getAggregateStats` accessor.
+- `WireMessage` / `OpenRouterTool` wire types added (LLM-facing, distinct from `ChatMessage`).
+- Model is a single swappable constant (`anthropic/claude-3.5-sonnet`).
+
+Gate: `bun run test` 16/16, `src/` lints clean, `bun run build` bundles.
+
+---
+
 ## Commit 4 - Convex client + the tool's `run` (T3)
 
 The action tier: the tool can now hit the real backend.

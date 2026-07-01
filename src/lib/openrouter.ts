@@ -1,8 +1,9 @@
-// Phase 1 calc layer (T2): pure parsing helpers for OpenRouter's wire format.
-// No network here - `fetch` and the SSE stream loop live in `decideTool` /
-// `streamAnswer` (commit 5). These read two untrusted shapes (a JSON response
-// body, and SSE text), so the input is `unknown`/`string` and we narrow
-// defensively rather than trusting the shape.
+// OpenRouter integration for the steel thread, ordered data -> calc -> action:
+// the wire types and pure parsers first, the two network calls at the bottom.
+// The parsers read untrusted shapes (a JSON response body, SSE text), so inputs
+// are `unknown`/`string` and we narrow defensively. The loop (commit 6) injects
+// `decideTool` / `streamAnswer`, so those stay swappable for fakes and carry no
+// unit test (mocking `fetch` would assert the mock); the pure parsers are.
 
 // A tool the model decided to call on the routing turn. `args` is parsed from
 // the wire `arguments` JSON string; the tool's `validate` (tools.ts) narrows it.
@@ -10,6 +11,34 @@ export interface ToolCall {
   id: string;
   name: string;
   args: unknown;
+}
+
+// One message in the array sent to OpenRouter - the LLM-facing conversation,
+// owned here and kept distinct from the UI-facing ChatMessage (types.ts). The
+// loop (commit 6) builds these: a tool decision is an assistant message with
+// `tool_calls`; a tool result is a `role: "tool"` message whose `tool_call_id`
+// matches the call it answers.
+export interface WireMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string | null;
+  tool_calls?: {
+    id: string;
+    type: "function";
+    function: { name: string; arguments: string };
+  }[];
+  tool_call_id?: string;
+}
+
+// A tool advertised to the model on the routing turn. `name` is the bare fn
+// name (no Convex path - dots are illegal in OpenRouter function names) and
+// `parameters` is the JSON Schema the model fills. Built from the registry.
+export interface OpenRouterTool {
+  type: "function";
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
 }
 
 // ── narrowing guards (keep `unknown` honest under strict lint) ───────────
@@ -106,4 +135,134 @@ export function extractTextDeltas(sse: string): string[] {
     }
   }
   return deltas;
+}
+
+// ── drainSSEBuffer: reassemble SSE lines split across network reads ──────
+/**
+ * The stateful glue {@link extractTextDeltas} punts on, kept pure by threading
+ * the leftover through the caller. A network read can end mid-line, splitting a
+ * `data:` payload across two chunks. Given the leftover from the previous read
+ * plus a new chunk, this emits the deltas for every now-complete line and
+ * returns the still-incomplete trailing line as `rest`, to prepend next time.
+ *
+ * @param buffer - incomplete trailing text carried from the previous read
+ * @param chunk - the newly-arrived text
+ * @returns `deltas` for the completed lines and `rest`, the new leftover
+ */
+export function drainSSEBuffer(
+  buffer: string,
+  chunk: string,
+): { deltas: string[]; rest: string } {
+  const combined = buffer + chunk;
+  const lastNewline = combined.lastIndexOf("\n");
+  if (lastNewline === -1) return { deltas: [], rest: combined };
+  return {
+    deltas: extractTextDeltas(combined.slice(0, lastNewline)),
+    rest: combined.slice(lastNewline + 1),
+  };
+}
+
+// ── network actions (T3): the two OpenRouter calls ───────────────────────
+
+const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
+// ponytail: one model constant. Swap freely - any OpenRouter tool-calling model
+// works; Claude is strong at tool use and matches the house style.
+const MODEL = "anthropic/claude-3.5-sonnet";
+
+function authHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${import.meta.env.VITE_OPENROUTER_API_KEY}`,
+  };
+}
+
+/**
+ * Routing turn: asks the model to pick a tool for the conversation so far.
+ * Non-streamed - the decision has no prose to show. `parallel_tool_calls: false`
+ * keeps it to at most one call (the guard behind {@link extractToolCall}).
+ *
+ * @param messages - the LLM-facing conversation so far
+ * @param tools - the tools advertised to the model
+ * @returns the chosen tool call, or null if the model wants to answer directly
+ * @throws if the OpenRouter call fails - an unreachable LLM aborts the turn
+ */
+export async function decideTool(
+  messages: WireMessage[],
+  tools: OpenRouterTool[],
+): Promise<ToolCall | null> {
+  const res = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model: MODEL,
+      messages,
+      tools,
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+      stream: false,
+    }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `OpenRouter routing call failed: ${String(res.status)} ${await res.text()}`,
+    );
+  }
+  const json: unknown = await res.json();
+  return extractToolCall(json);
+}
+
+/**
+ * Answer turn: streams the model's prose reply, calling `onDelta` with each
+ * fragment as it arrives and returning the full text at the end. Uses
+ * {@link drainSSEBuffer} to reassemble lines split across network reads.
+ *
+ * @param messages - the conversation (including any tool result to synthesize)
+ * @param onDelta - called with each text fragment, in order, for live rendering
+ * @returns the complete answer text
+ * @throws if the OpenRouter call fails or returns no stream body
+ */
+export async function streamAnswer(
+  messages: WireMessage[],
+  onDelta: (text: string) => void,
+): Promise<string> {
+  const res = await fetch(OPENROUTER_URL, {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify({ model: MODEL, messages, stream: true }),
+  });
+  if (!res.ok) {
+    throw new Error(
+      `OpenRouter answer call failed: ${String(res.status)} ${await res.text()}`,
+    );
+  }
+  if (!res.body) throw new Error("OpenRouter answer stream had no body");
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let full = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const { deltas, rest } = drainSSEBuffer(
+      buffer,
+      decoder.decode(value, { stream: true }),
+    );
+    buffer = rest;
+    for (const delta of deltas) {
+      full += delta;
+      onDelta(delta);
+    }
+  }
+
+  // Stream ended. Flush any bytes the decoder still holds, then treat the
+  // leftover as a complete final line - nothing more is coming to finish it.
+  // Guards a provider that omits the trailing newline on the last content line,
+  // or splits a multi-byte char across the final two reads (data loss otherwise).
+  const tail = buffer + decoder.decode();
+  for (const delta of extractTextDeltas(tail)) {
+    full += delta;
+    onDelta(delta);
+  }
+  return full;
 }

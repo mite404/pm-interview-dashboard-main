@@ -40,6 +40,9 @@ These are common instructions for Ethan's agents across all scenarios.
   One commit with hundreds or thousands of lines of code changes is hard for anyone to track.
 - Always opt for writing files in the same way: imports, variable declarations, prep data to work with, helper fns / pure fns, the main orchestration at the bottom.
   Work leafs to root and follow the functional programming principles from Grokking Simplicity: data, calculations, actions.
+- Public/exported functions and interface members get JSDoc (`/** */`) so editor tooltips carry the contract.
+  Include `@throws` wherever the function throws, and `@param`/`@returns` only where they say something the type does not.
+  Do not JSDoc private helpers or pure data-shape types - leave those as `//` comments; restating a type in JSDoc just invites drift.
 
 ---
 

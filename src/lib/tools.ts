@@ -9,6 +9,7 @@ import type {
   AggregateStats,
   AggregateStatsArgs,
   StatusBar,
+  Tool,
   ToolDeps,
 } from "./types";
 
@@ -101,3 +102,38 @@ export function run(
 ): Promise<AggregateStats> {
   return deps.convex.query(api.invocations.getAggregateStats, args);
 }
+
+// ── the assembled tool (the registry entry the loop dispatches) ──────────
+// Bundles the calc boundary (`validate`) and the action (`run`) with the
+// LLM-facing metadata. `name` is the bare fn name - no Convex module path,
+// since OpenRouter function names disallow dots; the dotted path survives only
+// as the typed `api` accessor inside `run`. `parameters` is the JSON Schema the
+// model fills; `additionalProperties: false` pairs with `validate`'s reject-on-
+// unknown-key rule. The loop builds the OpenRouterTool param from this entry.
+
+export const getAggregateStatsTool: Tool<AggregateStatsArgs, AggregateStats> = {
+  name: "getAggregateStats",
+  description:
+    "Overall health of agent runs, all-time: total invocations, how many " +
+    "succeeded, how many are still active (pending/running), how many finished, " +
+    "and average run duration in ms. Use for questions like 'how are our agent " +
+    "runs doing?'.",
+  parameters: {
+    type: "object",
+    properties: {
+      after: {
+        type: "number",
+        description:
+          "Optional unix-ms lower bound on a run's creation time. Omit for " +
+          "all-time, which is the usual case.",
+      },
+      groupFolder: {
+        type: "string",
+        description: "Optional group folder to scope to. Omit for all groups.",
+      },
+    },
+    additionalProperties: false,
+  },
+  validate,
+  run,
+};
