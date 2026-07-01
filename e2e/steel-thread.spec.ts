@@ -87,13 +87,15 @@ test("question -> tool pill -> streamed answer -> chart of real Convex data", as
   });
 
   await page.goto("/");
-  await page
-    .getByPlaceholder("Ask about agent runs…")
-    .fill("how are our agent runs doing?");
-  await page.getByRole("button", { name: "Send" }).click();
+  const chatInput = page.getByPlaceholder("Ask about agent runs…");
+  await chatInput.fill("how are our agent runs doing?");
+  // Submit with Enter: the DM composer also renders a "Send" button, so
+  // getByRole('button', { name: 'Send' }) is ambiguous under strict mode.
+  await chatInput.press("Enter");
 
-  // Must #6: the tool-status pill shows the tool executing.
-  await expect(page.getByText(/Running getAggregateStats/)).toBeVisible();
+  // Must #6: the tool-status chip shows the tool executing - its mono method
+  // line names the tool (the "Running"/"Success" badge is a sibling element).
+  await expect(page.getByText("getAggregateStats")).toBeVisible();
 
   // Must #5: the streamed answer text appears.
   await expect(page.getByText(ANSWER_TEXT)).toBeVisible();

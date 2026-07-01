@@ -18,6 +18,7 @@ import { buildSystemPrompt } from "./lib/prompt";
 import { toAgentRunRows } from "./lib/agentRuns";
 import { toDailyUsersLineData } from "./lib/dailyUsersLineChart";
 import { toTaskRows } from "./lib/taskDefs";
+import { toChipStatus } from "./lib/toolCallStatus";
 import { toTokenUsageSegments } from "./lib/tokenUsage";
 import {
   makeRunTool,
@@ -37,6 +38,7 @@ import { CostBreakdown } from "./components/CostBreakdown";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
+import { ToolCallStatus } from "./components/ToolCallStatus";
 import { SidebarNav } from "./components/SidebarNav";
 import type { NavId } from "./components/SidebarNav";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
@@ -75,12 +77,6 @@ function toWireMessage(message: ChatMessage): WireMessage {
 
 function newId(): string {
   return crypto.randomUUID();
-}
-
-function toolPillLabel(status: ToolStatus): string {
-  if (status.phase === "calling") return `Running ${status.tool}…`;
-  if (status.phase === "done") return `${status.tool} finished`;
-  return `${status.tool} failed: ${status.message}`;
 }
 
 // ── presentational sub-components ─────────────────────────────────────────
@@ -359,7 +355,10 @@ export default function App() {
           {busy && (
             <div style={assistantBubble}>
               {toolStatus && (
-                <span style={pillStyle}>{toolPillLabel(toolStatus)}</span>
+                <ToolCallStatus
+                  status={toChipStatus(toolStatus)}
+                  method={toolStatus.tool}
+                />
               )}
               <div>{streamText || "…"}</div>
             </div>
@@ -436,15 +435,6 @@ const assistantBubble: CSSProperties = {
   padding: "8px 12px",
   maxWidth: "100%",
   width: "100%",
-};
-const pillStyle: CSSProperties = {
-  display: "inline-block",
-  fontSize: 12,
-  color: "#3730a3",
-  background: "#e0e7ff",
-  borderRadius: 999,
-  padding: "2px 8px",
-  marginBottom: 6,
 };
 const fallbackStyle: CSSProperties = { color: "#b91c1c", fontSize: 13 };
 // The synthesis-answer actions slot (SEAM for PR 4), now holding the drill-in.
