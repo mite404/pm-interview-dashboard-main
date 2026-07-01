@@ -1,13 +1,14 @@
 import { defineConfig } from "vitest/config";
 
-// Vitest reads this in preference to vite.config.ts. We deliberately omit the
-// React/Babel plugin: the Phase 1 unit layer is pure calculations (no JSX, no
-// DOM), so a plain `node` environment is faster and keeps the output clean.
-// The React plugin + a jsdom environment are added in the commit that brings
-// the first component render test (the Recharts chart), not before.
+// Vitest reads this in preference to vite.config.ts. We omit the React
+// Fast-Refresh plugin (its babel options warn under Vitest); JSX in .tsx tests
+// is transformed by Vitest 4's built-in oxc, which honours tsconfig's
+// `jsx: "react-jsx"`. The default environment stays `node` for the fast pure
+// calc/parse tests; the one render test opts into jsdom with a per-file
+// `// @vitest-environment jsdom` comment, so only it pays for a DOM.
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.{ts,tsx}"],
   },
 });
