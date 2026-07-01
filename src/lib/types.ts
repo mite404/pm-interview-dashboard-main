@@ -21,6 +21,13 @@ export type AggregateStats = FunctionReturnType<
   typeof api.invocations.getAggregateStats
 >; // -> { total, active, succeeded, finishedCount, avgDuration }
 
+// The reply-lineage tool (PR 4): reconstructs the chain a message was replying
+// to, so synthesis can answer with the thread's context. Typed from the live
+// `api` like the others, so it can never drift from the backend return shape.
+export type ReplyLineage = FunctionReturnType<
+  typeof api.messages.getReplyLineage
+>; // -> { msgId?: string; content: string; role: "assistant" | "user"; timestamp: number }[]
+
 // A discriminated union keyed by `tool` - one member per wired tool. `data` is
 // both what the loop feeds back to the LLM and what the shell renders from. The
 // union grows one member per tool as they are wired.
@@ -33,7 +40,8 @@ export type ToolResult =
   | { tool: "listAll"; data: TaskDefsList }
   | { tool: "pause"; data: TaskDef }
   | { tool: "resume"; data: TaskDef }
-  | { tool: "enqueue"; data: EnqueuedMessageId };
+  | { tool: "enqueue"; data: EnqueuedMessageId }
+  | { tool: "getReplyLineage"; data: ReplyLineage };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -117,6 +125,10 @@ export type EnqueueArgs = FunctionArgs<typeof api.adminDirectMessages.enqueue>;
 export type EnqueuedMessageId = FunctionReturnType<
   typeof api.adminDirectMessages.enqueue
 >; // -> Id<"adminDirectMessages">
+
+export type ReplyLineageArgs = FunctionArgs<
+  typeof api.messages.getReplyLineage
+>; // -> { chatJid: string; replyToMsgId: string; maxMessages?: number; maxChars?: number }
 
 // A registry entry the loop dispatches uniformly. `execute` validates the raw
 // LLM args, runs the tool, and wraps the return into the discriminated

@@ -26,6 +26,8 @@ import type {
   MessagesList,
   PauseArgs,
   RegisteredTool,
+  ReplyLineage,
+  ReplyLineageArgs,
   ResumeArgs,
   StatusBar,
   TaskDef,
@@ -615,6 +617,120 @@ export const enqueueTool: RegisteredTool = {
     })),
 };
 
+// ── getReplyLineage: reply-chain context for synthesis (PR 4) ────────────
+const REPLY_LINEAGE_ARGS = [
+  "chatJid",
+  "replyToMsgId",
+  "maxMessages",
+  "maxChars",
+];
+
+/**
+ * Narrows untyped LLM-emitted JSON into typed `getReplyLineage` args.
+ *
+ * Same boundary convention as {@link validate}: throws on any unknown key, and
+ * type-checks each known key. `chatJid` / `replyToMsgId` are required non-empty
+ * strings; `maxMessages` / `maxChars` are optional positive integer caps.
+ *
+ * @param raw - the LLM's emitted args (untrusted)
+ * @returns the typed, validated args
+ * @throws if `raw` is not an object, carries an unknown key, omits a required
+ *   string, or gives a cap the wrong type - the throw feeds the loop so the
+ *   model can self-correct
+ */
+export function validateReplyLineage(raw: unknown): ReplyLineageArgs {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("getReplyLineage args must be an object");
+  }
+
+  const record = raw as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!REPLY_LINEAGE_ARGS.includes(key)) {
+      throw new Error(`getReplyLineage: unknown argument: ${key}`);
+    }
+  }
+
+  const { chatJid, replyToMsgId, maxMessages, maxChars } = record;
+  if (typeof chatJid !== "string" || chatJid.length === 0) {
+    throw new Error("getReplyLineage: `chatJid` must be a non-empty string");
+  }
+  if (typeof replyToMsgId !== "string" || replyToMsgId.length === 0) {
+    throw new Error(
+      "getReplyLineage: `replyToMsgId` must be a non-empty string",
+    );
+  }
+
+  const args: ReplyLineageArgs = { chatJid, replyToMsgId };
+  if (maxMessages !== undefined) {
+    if (!Number.isInteger(maxMessages) || (maxMessages as number) <= 0) {
+      throw new Error(
+        "getReplyLineage: `maxMessages` must be a positive integer",
+      );
+    }
+    args.maxMessages = maxMessages as number;
+  }
+  if (maxChars !== undefined) {
+    if (!Number.isInteger(maxChars) || (maxChars as number) <= 0) {
+      throw new Error("getReplyLineage: `maxChars` must be a positive integer");
+    }
+    args.maxChars = maxChars as number;
+  }
+  return args;
+}
+
+/**
+ * The tool's one side effect: calls `messages.getReplyLineage` over Convex.
+ * A plain query, so `.query()`. Dependency-injected like {@link run}; proven
+ * against the live backend, not a mock.
+ *
+ * @param args - validated args from {@link validateReplyLineage}
+ * @param deps - injected dependencies (the Convex client)
+ * @returns the reply lineage, oldest ancestor first
+ */
+export function runReplyLineage(
+  args: ReplyLineageArgs,
+  deps: ToolDeps,
+): Promise<ReplyLineage> {
+  return deps.convex.query(api.messages.getReplyLineage, args);
+}
+
+export const getReplyLineageTool: RegisteredTool = {
+  name: "getReplyLineage",
+  description:
+    "Reconstruct the chain of messages a given message was replying to, in a " +
+    "WhatsApp chat. Use to gather the surrounding thread before answering a " +
+    "question about a specific message. Returns the ancestor messages oldest " +
+    "first, each with its role (user/assistant), text, and timestamp.",
+  parameters: {
+    type: "object",
+    properties: {
+      chatJid: {
+        type: "string",
+        description: "The WhatsApp chat id (JID) the message belongs to.",
+      },
+      replyToMsgId: {
+        type: "string",
+        description: "The message id to walk the reply chain back from.",
+      },
+      maxMessages: {
+        type: "number",
+        description: "Optional cap on how many ancestors to walk. Default 8.",
+      },
+      maxChars: {
+        type: "number",
+        description: "Optional cap on total characters returned. Default 4000.",
+      },
+    },
+    required: ["chatJid", "replyToMsgId"],
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runReplyLineage(validateReplyLineage(rawArgs), deps).then((data) => ({
+      tool: "getReplyLineage",
+      data,
+    })),
+};
+
 // ── registry wiring (the two facets the shell hands the loop) ────────────
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
@@ -629,6 +745,7 @@ export const registry: RegisteredTool[] = [
   pauseTool,
   resumeTool,
   enqueueTool,
+  getReplyLineageTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).

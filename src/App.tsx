@@ -27,12 +27,18 @@ import {
 import type { ChatMessage, ToolResult, ToolStatus } from "./lib/types";
 import { AgentRunsTable } from "./components/AgentRunsTable";
 import { TaskDefsTable } from "./components/TaskDefsTable";
+import {
+  fixtureContact,
+  fixtureDateLabel,
+  fixtureMessages,
+} from "./lib/transcriptFixture";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
 import { TaskControl } from "./components/TaskControl";
 import { DirectMessageComposer } from "./components/DirectMessageComposer";
+import { Transcript } from "./components/Transcript";
 
 // ── config + injected dependencies ───────────────────────────────────────
 // Built once: the loop's real services, wired to the live Convex client. Only
@@ -122,10 +128,20 @@ function ToolResultChart({ result }: { result: ToolResult }) {
     case "resume":
     case "enqueue":
       return null;
+    case "getReplyLineage":
+      // Reply-chain context the model reads to answer in prose (and that drives
+      // the transcript drill-in), so it renders nothing inline.
+      return null;
   }
 }
 
-function MessageView({ message }: { message: ChatMessage }) {
+function MessageView({
+  message,
+  onOpenTranscript,
+}: {
+  message: ChatMessage;
+  onOpenTranscript: () => void;
+}) {
   const isUser = message.role === "user";
   return (
     <div style={isUser ? userBubble : assistantBubble}>
@@ -141,10 +157,17 @@ function MessageView({ message }: { message: ChatMessage }) {
       )}
       {!isUser && message.toolResult?.tool === "listByChatJid" && (
         <div style={actionsSlotStyle} data-testid="synthesis-actions">
-          {/* SEAM: PR 4 drill-in action attaches here.
-              This is a synthesis answer (its toolResult is a listByChatJid
-              window). PR 4's "View full transcript" button mounts in this slot
-              and reads message.toolResult.data to populate the Transcript Sheet. */}
+          {/* PR 4 drill-in: this is a synthesis answer (its toolResult is a
+              listByChatJid window). The button opens the transcript modal.
+              STUB: it opens the fixture transcript for now; wire it to read
+              message.toolResult.data once the shapes are joined. */}
+          <button
+            type="button"
+            style={drillInButton}
+            onClick={onOpenTranscript}
+          >
+            View full transcript ›
+          </button>
         </div>
       )}
     </div>
@@ -216,6 +239,7 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [streamText, setStreamText] = useState("");
   const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null);
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
 
   async function send() {
     const text = input.trim();
@@ -294,7 +318,13 @@ export default function App() {
       <h1 style={{ fontSize: 20 }}>PlanMonster Admin</h1>
       <div style={listStyle}>
         {messages.map((message) => (
-          <MessageView key={message.id} message={message} />
+          <MessageView
+            key={message.id}
+            message={message}
+            onOpenTranscript={() => {
+              setTranscriptOpen(true);
+            }}
+          />
         ))}
         {busy && (
           <div style={assistantBubble}>
@@ -321,6 +351,14 @@ export default function App() {
       </form>
       <TaskControlPanel />
       <DirectMessageComposer />
+      <Transcript
+        open={transcriptOpen}
+        onOpenChange={setTranscriptOpen}
+        contact={fixtureContact}
+        messages={fixtureMessages}
+        dateLabel={fixtureDateLabel}
+        messageCount={214} // Maya's lifetime total (design); the fixture shows a recent slice
+      />
     </div>
   );
 }
@@ -369,9 +407,18 @@ const pillStyle: CSSProperties = {
   marginBottom: 6,
 };
 const fallbackStyle: CSSProperties = { color: "#b91c1c", fontSize: 13 };
-// The synthesis-answer actions slot (SEAM for PR 4). Empty flex row so it has
-// zero footprint until PR 4 mounts the "View full transcript" button here.
+// The synthesis-answer actions slot (SEAM for PR 4), now holding the drill-in.
 const actionsSlotStyle: CSSProperties = { display: "flex", gap: 8 };
+const drillInButton: CSSProperties = {
+  alignSelf: "flex-start",
+  background: "transparent",
+  border: "none",
+  padding: 0,
+  color: "#f26212",
+  fontSize: 13,
+  fontWeight: 600,
+  cursor: "pointer",
+};
 const formStyle: CSSProperties = { display: "flex", gap: 8 };
 const inputStyle: CSSProperties = {
   flex: 1,
