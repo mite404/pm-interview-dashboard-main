@@ -4,13 +4,14 @@ import { describe, expect, it } from "vitest";
 import { ToolCallStatus } from "./ToolCallStatus";
 
 describe("ToolCallStatus", () => {
-  it("renders the queued label and method name, no meta suffix", () => {
+  it("shows the method name inside the pill, not a separate status word", () => {
     render(<ToolCallStatus status="queued" method="messages.listByChatJid" />);
-    expect(screen.getByText("Queued")).toBeDefined();
     expect(screen.getByText("messages.listByChatJid")).toBeDefined();
+    // color + icon carry the state, so the status label is no longer rendered
+    expect(screen.queryByText("Queued")).toBeNull();
   });
 
-  it("renders success with a method · meta line", () => {
+  it("appends meta after the method inside the pill", () => {
     render(
       <ToolCallStatus
         status="success"
@@ -18,13 +19,12 @@ describe("ToolCallStatus", () => {
         meta="128 rows · 42ms"
       />,
     );
-    expect(screen.getByText("Success")).toBeDefined();
     expect(
       screen.getByText("groups.listSignedUpUsers · 128 rows · 42ms"),
     ).toBeDefined();
   });
 
-  it("colors the failed method line with the error foreground token", () => {
+  it("colors the failed pill with the error foreground token", () => {
     render(
       <ToolCallStatus
         status="failed"
@@ -32,17 +32,17 @@ describe("ToolCallStatus", () => {
         meta="timeout after 30s"
       />,
     );
-    const methodLine = screen.getByText(
-      "invocations.listRecent · timeout after 30s",
-    );
-    expect(methodLine.className).toContain("text-dc-error-fg");
+    const pill = screen
+      .getByText("invocations.listRecent · timeout after 30s")
+      .closest("span");
+    expect(pill?.className).toContain("text-dc-error-fg");
   });
 
   it("pulses and spins only while running", () => {
     render(
       <ToolCallStatus status="running" method="dashboard.dailyUniqueUsers" />,
     );
-    const chip = screen.getByText("Running").closest("span");
-    expect(chip?.className).toContain("animate-dc-pulse");
+    const pill = screen.getByText("dashboard.dailyUniqueUsers").closest("span");
+    expect(pill?.className).toContain("animate-dc-pulse");
   });
 });

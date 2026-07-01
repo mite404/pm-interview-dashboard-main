@@ -153,8 +153,8 @@
       linear-gradient(
         135deg,
         #edebe7 0%,
-        rgba(237, 235, 231, 0.35) 42%,
-        rgba(237, 235, 231, 0) 72%
+        rgba(237, 235, 231, 0.55) 55%,
+        rgba(237, 235, 231, 0.15) 100%
       ),
       linear-gradient(to right, rgba(11, 58, 84, 0.11) 1px, transparent 1px),
       linear-gradient(to bottom, rgba(11, 58, 84, 0.11) 1px, transparent 1px),
@@ -172,6 +172,24 @@
     @apply text-foreground;
     background: transparent;
     min-height: 100vh;
+  }
+  /* Tailwind's preflight zeroes default margins on p/ul/ol/table, so the
+     LLM's prose, lists, and GFM tables would otherwise render flush against
+     each other with no blank line between them. */
+  .markdown > * + * {
+    margin-top: 0.75em;
+  }
+  .markdown ul,
+  .markdown ol {
+    padding-left: 1.25em;
+  }
+  /* The model uses lists for the options/suggestions it offers back. Emphasize
+     each item so the suggested actions read as distinct choices. Scoped to
+     `.markdown` (assistant prose only) and keyed off the <li> element, not any
+     hardcoded string - so every suggestion list gets it, none are wired by hand. */
+  .markdown li {
+    font-weight: bold;
+    font-style: italic;
   }
 }
 

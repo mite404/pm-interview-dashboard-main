@@ -150,7 +150,13 @@ function MessageView({
   const isUser = message.role === "user";
   return (
     <div style={isUser ? userBubble : assistantBubble}>
-      {isUser ? <div>{message.text}</div> : <Markdown>{message.text}</Markdown>}
+      {isUser ? (
+        <div>{message.text}</div>
+      ) : (
+        <div style={message.toolResult ? textBeforeInlineStyle : undefined}>
+          <Markdown>{message.text}</Markdown>
+        </div>
+      )}
       {message.toolResult && (
         <ErrorBoundary
           fallback={
@@ -374,7 +380,7 @@ export default function App() {
             placeholder="Ask about agent runs…"
             disabled={busy}
           />
-          <button type="submit" disabled={busy}>
+          <button type="submit" disabled={busy} style={{ borderRadius: 0 }}>
             Send
           </button>
         </form>
@@ -424,19 +430,22 @@ const listStyle: CSSProperties = {
 const userBubble: CSSProperties = {
   alignSelf: "flex-end",
   background: "#e8f0fe",
-  borderRadius: 8,
+  borderRadius: 0,
   padding: "8px 12px",
   maxWidth: "80%",
 };
 const assistantBubble: CSSProperties = {
   alignSelf: "flex-start",
   background: "#f4f4f5",
-  borderRadius: 8,
+  borderRadius: 0,
   padding: "8px 12px",
   maxWidth: "100%",
   width: "100%",
 };
 const fallbackStyle: CSSProperties = { color: "#b91c1c", fontSize: 13 };
+// Gap between the last line of assistant prose and a following inline
+// component (chart/table), so they never sit flush against each other.
+const textBeforeInlineStyle: CSSProperties = { marginBottom: 8 };
 // The synthesis-answer actions slot (SEAM for PR 4), now holding the drill-in.
 const actionsSlotStyle: CSSProperties = { display: "flex", gap: 8 };
 const drillInButton: CSSProperties = {
@@ -453,7 +462,7 @@ const formStyle: CSSProperties = { display: "flex", gap: 8 };
 const inputStyle: CSSProperties = {
   flex: 1,
   padding: "8px 12px",
-  borderRadius: 8,
+  borderRadius: 0,
   border: "1px solid #d4d4d8",
   background: "#ffffff", // opaque so the page drafting grid never shows through
 };

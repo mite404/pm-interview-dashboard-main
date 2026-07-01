@@ -94,18 +94,28 @@ interface ToolCallStatusProps {
 }
 
 export function ToolCallStatus({ status, method, meta }: ToolCallStatusProps) {
+  // The tool name lives INSIDE the colored pill (status is carried by the
+  // background + icon, not a separate word). Kept in `font-mono` at natural case
+  // rather than the chip's `.hd-cond`, which uppercases and would mangle a
+  // camelCase tool name (getAggregateStats -> GETAGGREGATESTATS).
+  const { fg, bg, Icon } = PALETTE[status];
   return (
-    <div className="inline-flex flex-col items-start gap-1">
-      <StatusChip status={status} />
-      <span
+    <span
+      className={cn(
+        "inline-flex items-center gap-[7px] px-[10px] py-[5px] font-mono text-[11.5px]",
+        fg,
+        bg,
+        status === "running" && "animate-dc-pulse",
+      )}
+    >
+      <Icon
         className={cn(
-          "font-mono text-[11.5px]",
-          status === "failed" ? "text-dc-error-fg" : "text-dc-faint",
+          status === "queued" ? "size-2" : "size-[11px] stroke-[3]",
+          status === "running" && "animate-dc-spin",
         )}
-      >
-        {method}
-        {meta ? ` · ${meta}` : ""}
-      </span>
-    </div>
+      />
+      {method}
+      {meta ? ` · ${meta}` : ""}
+    </span>
   );
 }
