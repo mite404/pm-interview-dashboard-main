@@ -26,6 +26,21 @@ export interface ToolResult {
   data: AggregateStats;
 }
 
+// Phase 2 chart tools (design-handoff pass): typed the same way as
+// `AggregateStats` above, sourced from the typed `api` so the two card/chart
+// components built this pass (03 token-usage, 04 bar-chart) can never drift
+// from the live backend shape. Not yet added to the `ToolResult` union or the
+// tool registry - that wiring is the chat-integration pass (PLAN.md commit 14),
+// this pass only builds the presentational components + their pure transforms.
+
+export type AggregateTokenUsage = FunctionReturnType<
+  typeof api.invocationEvents.getAggregateTokenUsage
+>; // -> { inputTokens, outputTokens, totalTokens, cacheCreationInputTokens, cacheReadInputTokens }
+
+export type DailyUniqueUsers = FunctionReturnType<
+  typeof api.dashboard.dailyUniqueUsers
+>; // -> { day: string /* YYYY-MM-DD */; uniqueUsers: number }[]
+
 // The cross-layer contract between the calc (`toStatusBars` in tools.ts) and
 // the pure chart (commit 7): both import it from here. The transform runs in
 // the shell (App.tsx), never inside the chart, so the chart stays presentational.

@@ -2,6 +2,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import "./index.css";
 
 // No ConvexProvider: the app talks to Convex through a ConvexHttpClient inside
 // the tool-calling loop (one-shot queries), not via React hooks.

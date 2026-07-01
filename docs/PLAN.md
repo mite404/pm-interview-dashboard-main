@@ -103,13 +103,32 @@ Approximate sequence, ~10 atomic commits (0-9), each green through the gate, ann
 
 Phase 2 is horizontal breadth on the proven thread: more tools, more chart types, the mutation, and the polish that makes it feel like a real operator tool.
 Each item is a small vertical (data -> calculation -> action -> UI -> test) on the spine Phase 1 already proved.
-The rationale for every decision below is recorded in `DESIGN.md`, written incrementally (one entry per decision as its commit lands, then a final editing pass); this section is the build roadmap, not the full defense.
 
-### Audience and design direction
+### Design system: the handoff, and vitals -> blocks
 
-The dashboard is internal admin/operator tooling, not contractor-facing: the brief states "the admin is the user," and the backend has no per-tenant scoping (confirmed by the existing "MonsterClaw" ops console - dev/prod switcher, per-user delete, cross-user PII).
-Match that existing tool's dark ops-console aesthetic: near-black background, construction-orange primary (`#F96302`, already close to MonsterClaw's accent), monospace labels, sharp corners.
-Source the components from the `phillips-poc-public` project (Tailwind 4, shadcn/Radix, lucide icons, `--radius: 0`), reusing its dark-mode CSS variables as the starting palette and swapping `--primary` to the construction orange.
+Phase 2's visual target is the high-fidelity handoff at `~/Downloads/design_handoff_conversational_admin/` (a PM x Home Depot "Monty - Admin" skin: 9 blocks + a history modal).
+Read its `README.md` for the token table, `components/README.md` for the block index and build order, and `screenshots/00-overview-dashboard.png` for the layout.
+This supersedes the earlier dark-MonsterClaw / phillips-poc direction.
+
+Two changes are material:
+
+- The palette flips from dark to a light PM x HD skin: page `#EDEBE7` (warm beige plus a faint drafting grid), navy ink `#0B3A54`, orange accent `#F26212`; condensed uppercase display type for headings / stats / badges, mono for API names and IDs.
+- Two border idioms coexist by design: sheet blocks use hard `2px` borders at radius 0, while the sidebar-nav (block `09`) uses the shadcn idiom (`8px` radius, `1-1.5px` borders, ghost hover, filled active). Keep the distinction; do not normalize to one radius.
+
+Build the `02` tool-call-status primitive first, per the handoff.
+It is four states (queued / running / success / failed) as a condensed chip plus a mono method line, reused inline in the chat (`01`) and in the agent-runs table (`06`) - our Phase 1 `ToolStatus` type given a skin and elevated to a shared component.
+
+The four vitals map onto the handoff's own blocks; there is no separate stat-tile strip, so the design's blocks are the vitals surfaces and the chat stays the hero:
+
+| Vital            | Handoff block                                 | Live data                                                                | Notes                                                                                                                                        |
+| ---------------- | --------------------------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Token spend      | `03` Token Usage card                         | `getAggregateTokenUsage`: 222.6K total (in 157.4K / out 65.2K / cache 0) | Relabel "This month" -> "Last 30 days" (this-month = 0 on the frozen seed); cache segment is 0; pace-vs-budget = Roadmap (no backend field). |
+| Active users     | `04` Bar Chart                                | `dailyUniqueUsers` (wide window): peak 3 on Jun 22, 4 active days        | Peak bar renders orange, per the design's peak-highlight.                                                                                    |
+| Agent run health | `06` Agent Runs table + `02` chips            | `listRecent` + `getAggregateStats`: 24 ok / 7 failed / 8 running         | The table is the health surface; failed rows expand to the raw error.                                                                        |
+| Reach            | sidebar-nav `09` (Groups item + Group Filter) | `groups.getAll`: 5 chats across 4 channels                               | No dedicated block; reach is thin, so it rides the nav/filter as a seeder. A "5 chats - 4 channels" caption suffices.                        |
+
+The rest of the handoff maps to existing commits: `01` chat + `02` status -> commits 10 / 13; `05` line graph (14-day messages/day) has no clean daily-messages tool, so it is Roadmap unless derived; `07` Task Control -> commit 19 (pause/resume + toast); `08` Users + history modal -> commits 21-22; `09` Sidebar Nav -> commit 23.
+Any block whose data is empty against the frozen seed (or absent, like `05`) follows the live/Roadmap rule: build the live subset for real, and mark the rest visibly disabled with a "Roadmap - not backed by the demo data" tooltip (the same inert, out-of-scope idiom as the disabled nav items), never reaching the loop.
 
 ### Atomic commit list (Phase 2 continues Phase 1's numbering)
 
@@ -117,13 +136,13 @@ Commits 10+ continue the Phase 1 sequence (0-9 above), so the whole build is one
 These Phase 2 entries are provisional: the order holds, but exact boundaries may shift as Phase 1 reality lands (re-confirm when Phase 1 is done).
 Each item is one green beat with its test, per the commit-boundary rule in the methodology. The feature subsections below carry the design detail for these commits.
 Tier note: Phase 1 built one tier per commit (data -> calc -> action -> UI -> verify) to prove the spine bottom-up. Phase 2 commits are per-feature verticals on that proven spine, so most span several tiers in one beat - the tags below show each commit's span.
-Suggested PR seams: 10-13 (foundation: design system, prompt, loop, markdown), 14-20 (tools + mutations), 21-26 (drill-in, navbar, context, cost, DESIGN.md).
+Suggested PR seams: 10-13 (foundation: design system, prompt, loop, markdown), 14-18 (tools + charts), 19-20 (mutations + safety), 21-26 (drill-in, navbar, context, cost).
 
-10. (T4 UI) Design system: `npx shadcn init` (Tailwind 4) + import the reusable `phillips-poc` ui components + dark palette with construction-orange `--primary` + delete the throwaway Phase 1 CSS. One clean foundation commit; the Phase 1 render/e2e tests stay green.
+10. (T4 UI) Design system: `npx shadcn init` (Tailwind 4) + adopt the handoff's PM x HD light skin (tokens in its README: page `#EDEBE7`, navy `#0B3A54`, orange `#F26212`, condensed display + mono), preserving the two border idioms (2px hard-edge sheet blocks vs the nav's 8px shadcn radius), and build the `02` tool-call-status primitive first (shared by chat and the runs table) + delete the throwaway Phase 1 CSS. One clean foundation commit; the Phase 1 render/e2e tests stay green.
 11. (T2 calc) `src/lib/prompt.ts` `buildSystemPrompt({ now })` pure fn + unit test (date injected, load-bearing rules present); wire it into the loop's system message.
 12. (T3 action) Loop multi-step hardening: `MAX_STEPS` cap + errors-fed-back-as-tool-results + reason-bearing failure, with integration tests (scripted fake LLM: two-step happy path, cap-hit termination, tool-error fed back, LLM-channel error aborts).
 13. (T4 UI) Markdown rendering: `react-markdown` + `remark-gfm` for assistant prose + GFM tables in the message renderer + render test.
-14. (T2->T4 calc->action->UI) Tools: `invocationEvents.getAggregateTokenUsage` (`.action()`, line chart) + `dashboard.dailyUniqueUsers` (daily-active-users bar series - the brief's literal example, reusing Recharts; known-sparse against the frozen seed, so call it `days: 90` and do not assert a specific value) - `validate` + unit tests, `run`s, renders + render tests.
+14. (T2->T4 calc->action->UI) Tools: `invocationEvents.getAggregateTokenUsage` (`.action()`) rendered as the handoff's `03` Token Usage stacked-bar card (input / output / cache segments, NOT a line chart; relabel the window to 30d/all-time) + `dashboard.dailyUniqueUsers` rendered as the `04` peak-highlighted bar chart (wide `days: 90` window against the frozen seed; do not assert a specific value) - `validate` + unit tests, `run`s, renders + render tests.
 15. (T2->T4 calc->action->UI) Tool: `invocations.listRecent` - `validate` + test, `run`, table render (filter to failed for "show me recent failed runs") + render test. (`getAggregateStats` is already wired in Phase 1; its KPI is reused here, not re-added.)
 16. (T2->T3 calc->action) Resolver tool: `groups.getAll` wired as `listConversations` (returns `{ name, jid }`) - `validate` (no args) + `run`. It is the only tool exposing the `jid`/`chatJid` bridge (`listSignedUpUsersForAdmin` returns `personId`, not `jid`), and it is the companion read for the synthesis flow - the way commit 18's `listAll` is the companion for the mutation.
 17. (T2->T3 calc->action) Tool: `messages.listByChatJid` - `validate` (chatJid non-empty string; a wrong jid returns `[]`, fed back as self-correction) + test, `run`; the synthesis prose flow ("what's X been talking about" -> `listConversations` resolves the jid -> bounded window -> summary), rendered by the existing markdown path. The dependency hint ("chatJid must come from listConversations") lives in the tool description, not the system prompt.

@@ -29,6 +29,15 @@ const ROUTING_RESPONSE = {
   ],
 };
 
+// Second routing turn: the model has its data and wants to answer (no
+// tool_calls). The loop is multi-step (MAX_STEPS), so it re-asks after running
+// the tool; this ends the tool loop cleanly instead of running to the cap.
+const NO_TOOL_RESPONSE = {
+  choices: [
+    { message: { role: "assistant", content: "" }, finish_reason: "stop" },
+  ],
+};
+
 // Answer turn: a streamed reply. Deliberately free of the chart's status words,
 // so asserting "succeeded" proves the chart rendered, not the prose.
 const ANSWER_TEXT = "Here is the current agent run breakdown.";
@@ -40,21 +49,31 @@ const ANSWER_SSE =
 test("question -> tool pill -> streamed answer -> chart of real Convex data", async ({
   page,
 }) => {
-  // Mock both OpenRouter turns, told apart by the `stream` flag in the body.
+  // Mock OpenRouter. Answer turns (stream:true) return the SSE; routing turns
+  // return the tool_call on the first call, then "no tool" so the multi-step
+  // loop stops re-asking and streams the answer.
+  let routingTurns = 0;
   await page.route(
     "https://openrouter.ai/api/v1/chat/completions",
     async (route) => {
       const isAnswerTurn =
         route.request().postData()?.includes('"stream":true') ?? false;
-      await route.fulfill(
-        isAnswerTurn
-          ? { status: 200, contentType: "text/event-stream", body: ANSWER_SSE }
-          : {
-              status: 200,
-              contentType: "application/json",
-              body: JSON.stringify(ROUTING_RESPONSE),
-            },
-      );
+      if (isAnswerTurn) {
+        await route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: ANSWER_SSE,
+        });
+        return;
+      }
+      routingTurns++;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(
+          routingTurns === 1 ? ROUTING_RESPONSE : NO_TOOL_RESPONSE,
+        ),
+      });
     },
   );
 

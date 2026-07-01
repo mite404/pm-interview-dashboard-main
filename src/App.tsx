@@ -12,6 +12,7 @@ import { runTurn } from "./lib/loop";
 import type { LoopDeps } from "./lib/loop";
 import { decideTool, streamAnswer } from "./lib/openrouter";
 import type { WireMessage } from "./lib/openrouter";
+import { buildSystemPrompt } from "./lib/prompt";
 import {
   makeRunTool,
   registry,
@@ -20,16 +21,10 @@ import {
 } from "./lib/tools";
 import type { ChatMessage, ToolResult, ToolStatus } from "./lib/types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { Markdown } from "./components/Markdown";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
 
 // ── config + injected dependencies ───────────────────────────────────────
-// Minimal for Phase 1; a dynamic buildSystemPrompt({ now }) is Phase 2. The
-// anti-fabrication line is the highest-value rule for a data tool.
-const SYSTEM_PROMPT =
-  "You are the admin assistant for the PlanMonster dashboard. Use the provided " +
-  "tools to answer questions about agent activity with real data. Only state " +
-  "figures returned by a tool - never invent numbers. Keep answers concise.";
-
 // Built once: the loop's real services, wired to the live Convex client. Only
 // tests swap these for fakes (loop.test.ts).
 const baseRunTool = makeRunTool(registry, { convex });
@@ -87,7 +82,7 @@ function MessageView({ message }: { message: ChatMessage }) {
   const isUser = message.role === "user";
   return (
     <div style={isUser ? userBubble : assistantBubble}>
-      <div>{message.text}</div>
+      {isUser ? <div>{message.text}</div> : <Markdown>{message.text}</Markdown>}
       {message.toolResult && (
         <ErrorBoundary
           fallback={
@@ -125,7 +120,7 @@ export default function App() {
     // distinct from the on-screen list; the loop appends the tool exchange to
     // its own copy internally.
     const wire: WireMessage[] = [
-      { role: "system", content: SYSTEM_PROMPT },
+      { role: "system", content: buildSystemPrompt({ now: new Date() }) },
       ...history.map(toWireMessage),
     ];
 
