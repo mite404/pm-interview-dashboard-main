@@ -26,7 +26,8 @@ export type AggregateStats = FunctionReturnType<
 // union grows one member per tool as they are wired (dailyUniqueUsers: 14b).
 export type ToolResult =
   | { tool: "getAggregateStats"; data: AggregateStats }
-  | { tool: "getAggregateTokenUsage"; data: AggregateTokenUsage };
+  | { tool: "getAggregateTokenUsage"; data: AggregateTokenUsage }
+  | { tool: "listRecent"; data: InvocationsList };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -38,6 +39,14 @@ export type AggregateTokenUsage = FunctionReturnType<
 export type DailyUniqueUsers = FunctionReturnType<
   typeof api.dashboard.dailyUniqueUsers
 >; // -> { day: string /* YYYY-MM-DD */; uniqueUsers: number }[]
+
+export type InvocationsList = FunctionReturnType<
+  typeof api.invocations.listRecent
+>; // -> Doc<"agentInvocations">[] (newest first)
+
+// The run-status enum, derived from the doc so it can never drift from the
+// backend's `v.union(...)`: "pending" | "running" | "succeeded" | "failed".
+export type InvocationStatus = InvocationsList[number]["status"];
 
 // The cross-layer contract between the calc (`toStatusBars` in tools.ts) and
 // the pure chart (commit 7): both import it from here. The transform runs in
@@ -63,6 +72,13 @@ export type AggregateStatsArgs = FunctionArgs<
 export type AggregateTokenUsageArgs = FunctionArgs<
   typeof api.invocationEvents.getAggregateTokenUsage
 >; // -> { after: number; groupFolder?: string }
+
+export type ListRecentArgs = FunctionArgs<typeof api.invocations.listRecent>; // -> { limit?: number; after?: number }
+
+// The tool advertises a superset of the Convex args: `status` is an LLM-facing
+// filter with no backend equivalent (listRecent has no status arg), applied to
+// the returned array by the tool's `run`. `validate` splits it back out.
+export type ListRecentToolArgs = ListRecentArgs & { status?: InvocationStatus };
 
 // A registry entry the loop dispatches uniformly. `execute` validates the raw
 // LLM args, runs the tool, and wraps the return into the discriminated

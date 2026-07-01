@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ToolStatus } from "./types";
-import { toChipStatus } from "./toolCallStatus";
+import { invocationStatusToChipStatus, toChipStatus } from "./toolCallStatus";
 
 describe("toChipStatus", () => {
   it("maps calling -> running", () => {
@@ -20,5 +20,17 @@ describe("toChipStatus", () => {
       message: "timeout after 30s",
     };
     expect(toChipStatus(status)).toBe("failed");
+  });
+});
+
+describe("invocationStatusToChipStatus", () => {
+  it("relabels pending -> queued and succeeded -> success", () => {
+    expect(invocationStatusToChipStatus("pending")).toBe("queued");
+    expect(invocationStatusToChipStatus("succeeded")).toBe("success");
+  });
+
+  it("passes running and failed through unchanged", () => {
+    expect(invocationStatusToChipStatus("running")).toBe("running");
+    expect(invocationStatusToChipStatus("failed")).toBe("failed");
   });
 });

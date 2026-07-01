@@ -12,11 +12,23 @@ import type {
   AggregateStatsArgs,
   AggregateTokenUsage,
   AggregateTokenUsageArgs,
+  InvocationStatus,
+  InvocationsList,
+  ListRecentToolArgs,
   RegisteredTool,
   StatusBar,
   ToolDeps,
   ToolResult,
 } from "./types";
+
+// The backend run-status enum, single-sourced for `validate` to check the
+// LLM-supplied filter against. Kept in step with the schema's `v.union(...)`.
+const INVOCATION_STATUSES: InvocationStatus[] = [
+  "pending",
+  "running",
+  "succeeded",
+  "failed",
+];
 
 // ── shared validate helpers (the registry-wide boundary convention) ──────
 // Untyped LLM JSON in -> typed args out, or a descriptive throw. Strict on the
@@ -190,6 +202,81 @@ export const getAggregateTokenUsageTool: RegisteredTool = {
     })),
 };
 
+// ── listRecent: recent agent runs, optionally filtered to one status ─────
+// The only tool with an LLM-facing arg the backend doesn't take: `status`.
+// `listRecent` has no status filter, so `validate` keeps it as a tool-level
+// concern and `run` applies it to the returned array (that split is why
+// "show me recent failed runs" resolves without a second Convex function).
+
+export function validateListRecent(raw: unknown): ListRecentToolArgs {
+  const record = asArgsRecord(raw, "listRecent");
+  assertKnownKeys(record, ["limit", "after", "status"], "listRecent");
+  const args: ListRecentToolArgs = {};
+  const limit = optionalNumber(record.limit, "limit", "listRecent");
+  if (limit !== undefined) args.limit = limit;
+  const after = optionalNumber(record.after, "after", "listRecent");
+  if (after !== undefined) args.after = after;
+  const status = optionalString(record.status, "status", "listRecent");
+  if (status !== undefined) {
+    if (!INVOCATION_STATUSES.includes(status as InvocationStatus)) {
+      throw new Error(
+        `listRecent: \`status\` must be one of ${INVOCATION_STATUSES.join(", ")}`,
+      );
+    }
+    args.status = status as InvocationStatus;
+  }
+  return args;
+}
+
+async function runListRecent(
+  args: ListRecentToolArgs,
+  deps: ToolDeps,
+): Promise<InvocationsList> {
+  // `status` is ours, not the backend's, so strip it before the Convex call and
+  // filter the result. ponytail: the filter runs after `limit`, so a small
+  // `limit` can hide older matches; fine at the seed's 39 runs (default take is
+  // 50), lift to a paginated scan if a real deployment needs deep status filters.
+  const { status, ...convexArgs } = args;
+  const rows = await deps.convex.query(api.invocations.listRecent, convexArgs);
+  return status ? rows.filter((run) => run.status === status) : rows;
+}
+
+export const listRecentTool: RegisteredTool = {
+  name: "listRecent",
+  description:
+    "Recent agent runs (invocations), newest first, each with its status, the " +
+    "admin prompt, group, and any failure error. Pass `status` to filter to " +
+    "just 'failed', 'running', 'succeeded', or 'pending' - e.g. for 'show me " +
+    "recent failed runs'. Use `limit` to cap how many, or omit for the default.",
+  parameters: {
+    type: "object",
+    properties: {
+      limit: {
+        type: "number",
+        description:
+          "Optional max number of runs to return. Omit for the default.",
+      },
+      after: {
+        type: "number",
+        description:
+          "Optional unix-ms lower bound on a run's creation time. Omit for the " +
+          "most recent regardless of age.",
+      },
+      status: {
+        type: "string",
+        enum: INVOCATION_STATUSES,
+        description: "Optional status filter. Omit to include every status.",
+      },
+    },
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runListRecent(validateListRecent(rawArgs), deps).then((data) => ({
+      tool: "listRecent",
+      data,
+    })),
+};
+
 // ── registry wiring (the two facets the shell hands the loop) ────────────
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
@@ -197,6 +284,7 @@ export const getAggregateTokenUsageTool: RegisteredTool = {
 export const registry: RegisteredTool[] = [
   getAggregateStatsTool,
   getAggregateTokenUsageTool,
+  listRecentTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).

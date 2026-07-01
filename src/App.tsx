@@ -13,6 +13,7 @@ import type { LoopDeps } from "./lib/loop";
 import { decideTool, streamAnswer } from "./lib/openrouter";
 import type { WireMessage } from "./lib/openrouter";
 import { buildSystemPrompt } from "./lib/prompt";
+import { toAgentRunRows } from "./lib/agentRuns";
 import { toTokenUsageSegments } from "./lib/tokenUsage";
 import {
   makeRunTool,
@@ -21,6 +22,7 @@ import {
   toStatusBars,
 } from "./lib/tools";
 import type { ChatMessage, ToolResult, ToolStatus } from "./lib/types";
+import { AgentRunsTable } from "./components/AgentRunsTable";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
@@ -94,6 +96,8 @@ function ToolResultChart({ result }: { result: ToolResult }) {
           {...toTokenUsageSegments(result.data)}
         />
       );
+    case "listRecent":
+      return <AgentRunsTable rows={toAgentRunRows(result.data)} />;
   }
 }
 

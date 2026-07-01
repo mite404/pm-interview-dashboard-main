@@ -3,6 +3,7 @@ import type { AggregateStats } from "./types";
 import {
   toStatusBars,
   validateAggregateStats,
+  validateListRecent,
   validateTokenUsage,
 } from "./tools";
 
@@ -66,6 +67,40 @@ describe("validateTokenUsage (getAggregateTokenUsage args)", () => {
 
   it("throws on an unknown key, naming it so the LLM can self-correct", () => {
     expect(() => validateTokenUsage({ days: 7 })).toThrow(/days/);
+  });
+});
+
+describe("validateListRecent (listRecent args)", () => {
+  it("returns empty args when the LLM passes none", () => {
+    expect(validateListRecent({})).toEqual({});
+    expect(validateListRecent(undefined)).toEqual({});
+  });
+
+  it("passes through limit and after", () => {
+    expect(validateListRecent({ limit: 10, after: 1000 })).toEqual({
+      limit: 10,
+      after: 1000,
+    });
+  });
+
+  it("accepts a valid status filter", () => {
+    expect(validateListRecent({ status: "failed" })).toEqual({
+      status: "failed",
+    });
+  });
+
+  it("throws on a status outside the enum, naming the allowed values", () => {
+    expect(() => validateListRecent({ status: "broken" })).toThrow(/failed/);
+  });
+
+  it("throws when limit is not a number", () => {
+    expect(() => validateListRecent({ limit: "ten" })).toThrow();
+  });
+
+  it("throws on an unknown key, naming it so the LLM can self-correct", () => {
+    expect(() => validateListRecent({ groupFolder: "maya" })).toThrow(
+      /groupFolder/,
+    );
   });
 });
 
