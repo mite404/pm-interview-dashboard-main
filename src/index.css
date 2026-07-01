@@ -139,12 +139,39 @@
   * {
     @apply border-border outline-ring/50;
   }
-  body {
-    @apply bg-background text-foreground;
-  }
+  /* The page fill is the handoff's architectural drafting grid layered on the
+     warm-beige page color (#EDEBE7): a diagonal fade (faint top-left,
+     strengthening bottom-right) over a 96px major grid and a 24px fine grid in
+     translucent navy. Painted on <html> so it fills the viewport and shows
+     through every transparent surface (the app shell, the gaps between sheet
+     blocks); the opaque sheet/card fills sit on top of it. Values verbatim from
+     design_handoff_conversational_admin/README.md "Background grid (page)". */
   html {
-    @apply font-sans;
-    @apply bg-background text-foreground font-sans;
+    @apply font-sans text-foreground;
+    background-color: #edebe7;
+    background-image:
+      linear-gradient(
+        135deg,
+        #edebe7 0%,
+        rgba(237, 235, 231, 0.35) 42%,
+        rgba(237, 235, 231, 0) 72%
+      ),
+      linear-gradient(to right, rgba(11, 58, 84, 0.11) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(11, 58, 84, 0.11) 1px, transparent 1px),
+      linear-gradient(to right, rgba(11, 58, 84, 0.055) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(11, 58, 84, 0.055) 1px, transparent 1px);
+    background-size:
+      100% 100%,
+      96px 96px,
+      96px 96px,
+      24px 24px,
+      24px 24px;
+    background-attachment: fixed, scroll, scroll, scroll, scroll;
+  }
+  body {
+    @apply text-foreground;
+    background: transparent;
+    min-height: 100vh;
   }
 }
 

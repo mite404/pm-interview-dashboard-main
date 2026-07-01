@@ -5,7 +5,7 @@
 // stores - the on-screen ChatMessage list and, per turn, the OpenRouter wire
 // array it feeds the loop.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -247,6 +247,17 @@ export default function App() {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<NavId>("groups");
 
+  // Keep the newest bubble in view: pin the scroll container to the bottom
+  // whenever the list grows or the streamed answer/tool pill updates its height,
+  // so the admin never has to scroll down manually. ponytail: always-pin (no
+  // "only if already at bottom" check) - a single-column admin chat has no
+  // scroll-up-to-read-history flow yet where that would fight the user.
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, streamText, toolStatus, busy]);
+
   // In-scope nav items set the active route and seed a starter question into
   // the composer (they never auto-send - the admin edits/sends). Out-of-scope
   // items never call this: they are inert in the sidebar.
@@ -332,7 +343,7 @@ export default function App() {
       <SidebarNav active={activeNav} onSelect={handleNavSelect} />
       <div style={pageStyle}>
         <h1 style={{ fontSize: 20 }}>PlanMonster Admin</h1>
-        <div style={listStyle}>
+        <div ref={listRef} style={listStyle}>
           {messages.map((message) => (
             <MessageView
               key={message.id}
@@ -451,4 +462,5 @@ const inputStyle: CSSProperties = {
   padding: "8px 12px",
   borderRadius: 8,
   border: "1px solid #d4d4d8",
+  background: "#ffffff", // opaque so the page drafting grid never shows through
 };
