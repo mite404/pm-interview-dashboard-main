@@ -1,80 +1,93 @@
-// The steel thread's one tool, `invocations.getAggregateStats`, built leaf to
-// root: the pure calculations first (`validate`, `toStatusBars` - data in, data
-// out, unit-tested in tools.test.ts), then the one action at the bottom (`run`,
-// the Convex call). The action is dependency-injected, so the calcs above never
-// touch the network and stay deterministic to test.
+// The tool registry: each entry bundles the LLM-facing metadata with an
+// `execute` closure (validate -> run -> wrap into the discriminated ToolResult).
+// Per tool, built leaf to root: the pure `validate` (the graded LLM->Convex
+// boundary, unit-tested) and any transform, then the Convex `run`, then the
+// assembled RegisteredTool. Actions are dependency-injected, so the calcs stay
+// network-free and deterministic to test.
 
 import { api } from "../../convex/_generated/api";
 import type { OpenRouterTool } from "./openrouter";
 import type {
   AggregateStats,
   AggregateStatsArgs,
+  AggregateTokenUsage,
+  AggregateTokenUsageArgs,
+  RegisteredTool,
   StatusBar,
-  Tool,
   ToolDeps,
   ToolResult,
 } from "./types";
 
-// ── validate: the LLM -> Convex trust boundary the brief grades ──────────
-const KNOWN_ARGS = ["after", "groupFolder"];
+// ── shared validate helpers (the registry-wide boundary convention) ──────
+// Untyped LLM JSON in -> typed args out, or a descriptive throw. Strict on the
+// types of known keys; throws on ANY unknown key, naming it so the loop can feed
+// the reason back and the model can self-correct.
 
-/**
- * Narrows untyped LLM-emitted JSON into typed `getAggregateStats` args.
- *
- * The registry-wide boundary convention: strict on the types of known keys
- * (`after`, `groupFolder`, both optional - the thread passes none for all-time
- * stats), and it throws on ANY unknown key rather than dropping it.
- *
- * @param raw - the LLM's emitted args (untrusted; `undefined`/`null` -> `{}`)
- * @returns the typed, validated args
- * @throws if `raw` is not an object, carries an unknown key, or gives `after` /
- *   `groupFolder` the wrong type - the throw feeds the agentic loop, and naming
- *   the offending key tells the LLM which arg to drop on retry
- */
-export function validate(raw: unknown): AggregateStatsArgs {
+function asArgsRecord(raw: unknown, tool: string): Record<string, unknown> {
   if (raw === undefined || raw === null) return {};
   if (typeof raw !== "object" || Array.isArray(raw)) {
-    throw new Error("getAggregateStats args must be an object");
+    throw new Error(`${tool} args must be an object`);
   }
+  return raw as Record<string, unknown>;
+}
 
-  const record = raw as Record<string, unknown>;
+function assertKnownKeys(
+  record: Record<string, unknown>,
+  known: string[],
+  tool: string,
+): void {
   for (const key of Object.keys(record)) {
-    if (!KNOWN_ARGS.includes(key)) {
-      throw new Error(`getAggregateStats: unknown argument: ${key}`);
+    if (!known.includes(key)) {
+      throw new Error(`${tool}: unknown argument: ${key}`);
     }
   }
+}
 
-  const { after, groupFolder } = record;
+function optionalNumber(
+  value: unknown,
+  name: string,
+  tool: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw new Error(`${tool}: \`${name}\` must be a number`);
+  }
+  return value;
+}
+
+function optionalString(
+  value: unknown,
+  name: string,
+  tool: string,
+): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string") {
+    throw new Error(`${tool}: \`${name}\` must be a string`);
+  }
+  return value;
+}
+
+// ── getAggregateStats: overall agent-run health (the Phase 1 tool) ───────
+
+export function validateAggregateStats(raw: unknown): AggregateStatsArgs {
+  const record = asArgsRecord(raw, "getAggregateStats");
+  assertKnownKeys(record, ["after", "groupFolder"], "getAggregateStats");
   const args: AggregateStatsArgs = {};
-
-  if (after !== undefined) {
-    if (typeof after !== "number" || !Number.isFinite(after)) {
-      throw new Error("getAggregateStats: `after` must be a number (ms epoch)");
-    }
-    args.after = after;
-  }
-
-  if (groupFolder !== undefined) {
-    if (typeof groupFolder !== "string") {
-      throw new Error("getAggregateStats: `groupFolder` must be a string");
-    }
-    args.groupFolder = groupFolder;
-  }
-
+  const after = optionalNumber(record.after, "after", "getAggregateStats");
+  if (after !== undefined) args.after = after;
+  const groupFolder = optionalString(
+    record.groupFolder,
+    "groupFolder",
+    "getAggregateStats",
+  );
+  if (groupFolder !== undefined) args.groupFolder = groupFolder;
   return args;
 }
 
-// ── toStatusBars: stats -> three chart bars ──────────────────────────────
 /**
- * Derives the three status bars the chart renders from the raw stats.
- *
- * The status enum is {pending, running, succeeded, failed}, so
- * active + succeeded + failed = total. The backend gives succeeded, active, and
- * finishedCount (= succeeded + failed) directly; the third bar is derived as
- * failed = finishedCount - succeeded. The three bars always sum to total.
- *
- * @param stats - the raw `getAggregateStats` return
- * @returns the succeeded / active / failed bars, in render order
+ * Derives the three status bars the chart renders. The status enum is
+ * {pending, running, succeeded, failed}, so active + succeeded + failed = total;
+ * failed is derived as finishedCount - succeeded. The three bars sum to total.
  */
 export function toStatusBars(stats: AggregateStats): StatusBar[] {
   return [
@@ -84,36 +97,14 @@ export function toStatusBars(stats: AggregateStats): StatusBar[] {
   ];
 }
 
-// ── run: the action - call the real Convex query (T3) ────────────────────
-/**
- * The tool's one side effect: calls `invocations.getAggregateStats` over Convex.
- *
- * Dependency-injected - `deps.convex` is the real ConvexHttpClient in the app
- * (convexClient.ts) and a fake in tests, so the pure calcs above never reach the
- * network. getAggregateStats is a plain query (not an action), so `.query()`.
- * The live wire is proven by commit 0's probe, so this seam is covered by the
- * loop integration test (commit 6) and the e2e (commit 9), not a unit test.
- *
- * @param args - validated args from {@link validate}
- * @param deps - injected dependencies (the Convex client)
- * @returns the aggregate stats from the backend
- */
-export function run(
+function runAggregateStats(
   args: AggregateStatsArgs,
   deps: ToolDeps,
 ): Promise<AggregateStats> {
   return deps.convex.query(api.invocations.getAggregateStats, args);
 }
 
-// ── the assembled tool (the registry entry the loop dispatches) ──────────
-// Bundles the calc boundary (`validate`) and the action (`run`) with the
-// LLM-facing metadata. `name` is the bare fn name - no Convex module path,
-// since OpenRouter function names disallow dots; the dotted path survives only
-// as the typed `api` accessor inside `run`. `parameters` is the JSON Schema the
-// model fills; `additionalProperties: false` pairs with `validate`'s reject-on-
-// unknown-key rule. The loop builds the OpenRouterTool param from this entry.
-
-export const getAggregateStatsTool: Tool<AggregateStatsArgs, AggregateStats> = {
+export const getAggregateStatsTool: RegisteredTool = {
   name: "getAggregateStats",
   description:
     "Overall health of agent runs, all-time: total invocations, how many " +
@@ -136,23 +127,80 @@ export const getAggregateStatsTool: Tool<AggregateStatsArgs, AggregateStats> = {
     },
     additionalProperties: false,
   },
-  validate,
-  run,
+  execute: (rawArgs, deps) =>
+    runAggregateStats(validateAggregateStats(rawArgs), deps).then((data) => ({
+      tool: "getAggregateStats",
+      data,
+    })),
+};
+
+// ── getAggregateTokenUsage: LLM token spend (an ACTION, not a query) ─────
+
+export function validateTokenUsage(raw: unknown): AggregateTokenUsageArgs {
+  const record = asArgsRecord(raw, "getAggregateTokenUsage");
+  assertKnownKeys(record, ["after", "groupFolder"], "getAggregateTokenUsage");
+  const after = optionalNumber(record.after, "after", "getAggregateTokenUsage");
+  const groupFolder = optionalString(
+    record.groupFolder,
+    "groupFolder",
+    "getAggregateTokenUsage",
+  );
+  // `after` is required by the Convex action; default to 0 (all-time) when the
+  // model omits it, so "token usage" with no window returns the full picture.
+  const args: AggregateTokenUsageArgs = { after: after ?? 0 };
+  if (groupFolder !== undefined) args.groupFolder = groupFolder;
+  return args;
+}
+
+function runTokenUsage(
+  args: AggregateTokenUsageArgs,
+  deps: ToolDeps,
+): Promise<AggregateTokenUsage> {
+  // `.action()`, not `.query()` - getAggregateTokenUsage pages internally.
+  return deps.convex.action(api.invocationEvents.getAggregateTokenUsage, args);
+}
+
+export const getAggregateTokenUsageTool: RegisteredTool = {
+  name: "getAggregateTokenUsage",
+  description:
+    "Total LLM token usage across all agent activity: input, output, and " +
+    "cache-read tokens. Use for 'token usage', 'how many tokens', or cost " +
+    "questions. Pass `after` as a unix-ms lower bound for a window, or omit " +
+    "for all-time.",
+  parameters: {
+    type: "object",
+    properties: {
+      after: {
+        type: "number",
+        description:
+          "Optional unix-ms lower bound on when the usage was recorded. Omit " +
+          "for all-time.",
+      },
+      groupFolder: {
+        type: "string",
+        description: "Optional group folder to scope to. Omit for all groups.",
+      },
+    },
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runTokenUsage(validateTokenUsage(rawArgs), deps).then((data) => ({
+      tool: "getAggregateTokenUsage",
+      data,
+    })),
 };
 
 // ── registry wiring (the two facets the shell hands the loop) ────────────
-// Phase 1 has one tool, so the registry is concretely typed. The builders read
-// only the LLM-facing metadata / dispatch by name, so this stays wiring - it is
-// proven by the loop integration test (with fakes) and the e2e, not unit-tested.
+// One array drives both advertising (toOpenRouterTools) and dispatch
+// (makeRunTool). Adding a tool = define it + add it here.
 
-export const registry: Tool<AggregateStatsArgs, AggregateStats>[] = [
+export const registry: RegisteredTool[] = [
   getAggregateStatsTool,
+  getAggregateTokenUsageTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).
-export function toOpenRouterTools(
-  tools: Tool<AggregateStatsArgs, AggregateStats>[],
-): OpenRouterTool[] {
+export function toOpenRouterTools(tools: RegisteredTool[]): OpenRouterTool[] {
   return tools.map((tool) => ({
     type: "function",
     function: {
@@ -163,18 +211,15 @@ export function toOpenRouterTools(
   }));
 }
 
-// Execute a tool by the name the LLM called, returning the typed result the
-// shell renders and the loop feeds back. An unknown name throws (a hallucinated
-// tool), which the loop surfaces gracefully.
+// Execute a tool by the name the LLM called. An unknown name rejects (a
+// hallucinated tool), which the loop surfaces gracefully.
 export function makeRunTool(
-  tools: Tool<AggregateStatsArgs, AggregateStats>[],
+  tools: RegisteredTool[],
   deps: ToolDeps,
 ): (name: string, rawArgs: unknown) => Promise<ToolResult> {
-  return async (name, rawArgs) => {
+  return (name, rawArgs) => {
     const tool = tools.find((candidate) => candidate.name === name);
-    if (!tool) throw new Error(`unknown tool: ${name}`);
-    // Phase 1: one tool -> one ToolResult shape. Phase 2 maps name -> shape.
-    const data = await tool.run(tool.validate(rawArgs), deps);
-    return { tool: "getAggregateStats", data };
+    if (!tool) return Promise.reject(new Error(`unknown tool: ${name}`));
+    return tool.execute(rawArgs, deps);
   };
 }

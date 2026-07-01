@@ -21,17 +21,15 @@ export type AggregateStats = FunctionReturnType<
   typeof api.invocations.getAggregateStats
 >; // -> { total, active, succeeded, finishedCount, avgDuration }
 
-export interface ToolResult {
-  tool: "getAggregateStats";
-  data: AggregateStats;
-}
+// A discriminated union keyed by `tool` - one member per wired tool. `data` is
+// both what the loop feeds back to the LLM and what the shell renders from. The
+// union grows one member per tool as they are wired (dailyUniqueUsers: 14b).
+export type ToolResult =
+  | { tool: "getAggregateStats"; data: AggregateStats }
+  | { tool: "getAggregateTokenUsage"; data: AggregateTokenUsage };
 
-// Phase 2 chart tools (design-handoff pass): typed the same way as
-// `AggregateStats` above, sourced from the typed `api` so the two card/chart
-// components built this pass (03 token-usage, 04 bar-chart) can never drift
-// from the live backend shape. Not yet added to the `ToolResult` union or the
-// tool registry - that wiring is the chat-integration pass (PLAN.md commit 14),
-// this pass only builds the presentational components + their pure transforms.
+// Phase 2 tool returns, typed from the `api` so the card/chart components can
+// never drift from the live backend shape.
 
 export type AggregateTokenUsage = FunctionReturnType<
   typeof api.invocationEvents.getAggregateTokenUsage
@@ -62,19 +60,22 @@ export type AggregateStatsArgs = FunctionArgs<
   typeof api.invocations.getAggregateStats
 >; // -> { after?: number; groupFolder?: string }
 
-export interface Tool<Args, Data> {
+export type AggregateTokenUsageArgs = FunctionArgs<
+  typeof api.invocationEvents.getAggregateTokenUsage
+>; // -> { after: number; groupFolder?: string }
+
+// A registry entry the loop dispatches uniformly. `execute` validates the raw
+// LLM args, runs the tool, and wraps the return into the discriminated
+// `ToolResult` - one closure, so a heterogeneous registry (tools with different
+// arg/return shapes) stays uniformly typed. Each tool's `validate` is still a
+// separate export, unit-tested as the graded LLM->Convex boundary.
+export interface RegisteredTool {
   name: string;
   description: string;
   /** JSON Schema advertised to OpenRouter's `tools` param. */
   parameters: Record<string, unknown>;
-  /**
-   * Narrows untyped LLM-emitted JSON to typed `Args`.
-   * @throws if the args are malformed or carry an unknown key - the throw feeds
-   *   the agentic loop so the model can self-correct.
-   */
-  validate: (raw: unknown) => Args;
-  /** Runs the tool's one side effect (the Convex call) via the injected `deps`. */
-  run: (args: Args, deps: ToolDeps) => Promise<Data>;
+  /** @throws on malformed args (fed back to the loop) or a failed Convex call. */
+  execute: (rawArgs: unknown, deps: ToolDeps) => Promise<ToolResult>;
 }
 
 // ── Chat UI messages (what the admin sees) ───────────────────────────────

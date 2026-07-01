@@ -13,6 +13,7 @@ import type { LoopDeps } from "./lib/loop";
 import { decideTool, streamAnswer } from "./lib/openrouter";
 import type { WireMessage } from "./lib/openrouter";
 import { buildSystemPrompt } from "./lib/prompt";
+import { toTokenUsageSegments } from "./lib/tokenUsage";
 import {
   makeRunTool,
   registry,
@@ -22,6 +23,7 @@ import {
 import type { ChatMessage, ToolResult, ToolStatus } from "./lib/types";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
+import { TokenUsageCard } from "./components/TokenUsageCard";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
 
 // ── config + injected dependencies ───────────────────────────────────────
@@ -68,14 +70,31 @@ function toolPillLabel(status: ToolStatus): string {
 // we render it directly; when Phase 2 adds tools, `result.data` becomes a union
 // and the compiler forces a discriminant switch here.
 function ToolResultChart({ result }: { result: ToolResult }) {
-  const stats = result.data;
-  return (
-    <StatusBreakdownChart
-      bars={toStatusBars(stats)}
-      total={stats.total}
-      avgDuration={stats.avgDuration}
-    />
-  );
+  // Discriminate on the tool, then transform the raw result into the props each
+  // pure component wants (the transform runs in the shell, never in the chart).
+  // The switch is exhaustive over the union - a new ToolResult member won't
+  // compile until it's handled here.
+  switch (result.tool) {
+    case "getAggregateStats": {
+      const stats = result.data;
+      return (
+        <StatusBreakdownChart
+          bars={toStatusBars(stats)}
+          total={stats.total}
+          avgDuration={stats.avgDuration}
+        />
+      );
+    }
+    case "getAggregateTokenUsage":
+      // The tool defaults to all-time (after: 0), so label it honestly rather
+      // than the design's "Last 30 days" (this-month is 0 on the frozen seed).
+      return (
+        <TokenUsageCard
+          period="All-time"
+          {...toTokenUsageSegments(result.data)}
+        />
+      );
+  }
 }
 
 function MessageView({ message }: { message: ChatMessage }) {
