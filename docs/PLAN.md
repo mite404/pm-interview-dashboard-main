@@ -260,3 +260,21 @@ Extends the Phase 1 approach: most new logic is pure and unit-tested, the loop i
 | Write `DESIGN.md`                                        | none                                                                                                        | **Nice #14**                                                                                             |
 
 Note: there is deliberately no whole-project `tsc` gate. The given `convex/` backend source does not type-check, and the generated `api.d.ts` pulls those modules into any `tsc` run, so a clean compile is impossible without editing given code. Type safety on `src/` comes from type-aware ESLint plus the editor's TypeScript server.
+
+### Persistent vitals: token-spend tile (always-on)
+
+A single always-on vital at the top of the page, pulled straight from Convex - no LLM round-trip, no "ask the agent" step.
+Better UX than making every number conversational, and it makes the header read like a real ops console rather than an empty chat.
+
+Scope (small - it reuses pieces that already exist):
+
+- A `TokenSpendTile` component that fetches once on mount via the existing `ConvexHttpClient` (`convex.action(api.invocationEvents.getAggregateTokenUsage, { after: 0 })`), holds the result in state, and renders the existing `TokenUsageCard` via `toTokenUsageSegments`. Label it "All-time" (this-month is 0 on the frozen seed).
+- Fetch-on-mount, not reactive `useQuery`: the app has no `ConvexProvider` by design (Convex is reached only through the `ConvexHttpClient`), and the seed is frozen - so a one-shot fetch is both consistent with the architecture and correct; reactivity would be over-engineering.
+- Loading/error: a skeleton while pending; on error render nothing (never crash the header).
+- Coexists with the `getAggregateTokenUsage` tool - the tile is the at-a-glance, the tool is the conversational deep-dive. Optionally make the tile clickable to seed "break down our token usage by Go Deep run" into the composer (reuses `listCostRollups`), so it doubles as a conversation entry point.
+
+Why token spend over the other three vitals: it has dense, real all-time data.
+Agent-health (`getAggregateStats`) is the only equally-live alternative (a query, marginally simpler to wire); active-users was cut (sparse/frozen) and reach is thin.
+Start with the one tile; add more only if they earn their place against the "replace the dashboard with conversation" thesis.
+
+Land it as its own small commit/branch (`add-token-spend-tile`), gate green (`bun run lint` + `bun run test`).

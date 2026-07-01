@@ -121,7 +121,7 @@ export const dailyUniqueUsers = query({
     for (const msg of messages) {
       if (msg.isFromMe) continue;
 
-      if (lane) {
+      if (args.lane) {
         const msgLane = msg.laneKey ?? inferLane(msg.chatJid);
         if (msgLane !== args.lane) continue;
       }

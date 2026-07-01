@@ -5,7 +5,7 @@
 // stores - the on-screen ChatMessage list and, per turn, the OpenRouter wire
 // array it feeds the loop.
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import { api } from "../convex/_generated/api";
 import type { Id } from "../convex/_generated/dataModel";
@@ -16,7 +16,9 @@ import { decideTool, streamAnswer } from "./lib/openrouter";
 import type { WireMessage } from "./lib/openrouter";
 import { buildSystemPrompt } from "./lib/prompt";
 import { toAgentRunRows } from "./lib/agentRuns";
+import { toDailyUsersLineData } from "./lib/dailyUsersLineChart";
 import { toTaskRows } from "./lib/taskDefs";
+import { toChipStatus } from "./lib/toolCallStatus";
 import { toTokenUsageSegments } from "./lib/tokenUsage";
 import {
   makeRunTool,
@@ -36,9 +38,11 @@ import { CostBreakdown } from "./components/CostBreakdown";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
+import { ToolCallStatus } from "./components/ToolCallStatus";
 import { SidebarNav } from "./components/SidebarNav";
 import type { NavId } from "./components/SidebarNav";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
+import { DailyUsersLineChart } from "./components/DailyUsersLineChart";
 import { TaskControl } from "./components/TaskControl";
 import { DirectMessageComposer } from "./components/DirectMessageComposer";
 import { Transcript } from "./components/Transcript";
@@ -73,12 +77,6 @@ function toWireMessage(message: ChatMessage): WireMessage {
 
 function newId(): string {
   return crypto.randomUUID();
-}
-
-function toolPillLabel(status: ToolStatus): string {
-  if (status.phase === "calling") return `Running ${status.tool}…`;
-  if (status.phase === "done") return `${status.tool} finished`;
-  return `${status.tool} failed: ${status.message}`;
 }
 
 // ── presentational sub-components ─────────────────────────────────────────
@@ -137,6 +135,8 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       return null;
     case "listCostRollups":
       return <CostBreakdown rows={result.data} />;
+    case "dailyUniqueUsers":
+      return <DailyUsersLineChart data={toDailyUsersLineData(result.data)} />;
   }
 }
 
@@ -150,7 +150,13 @@ function MessageView({
   const isUser = message.role === "user";
   return (
     <div style={isUser ? userBubble : assistantBubble}>
-      {isUser ? <div>{message.text}</div> : <Markdown>{message.text}</Markdown>}
+      {isUser ? (
+        <div>{message.text}</div>
+      ) : (
+        <div style={message.toolResult ? textBeforeInlineStyle : undefined}>
+          <Markdown>{message.text}</Markdown>
+        </div>
+      )}
       {message.toolResult && (
         <ErrorBoundary
           fallback={
@@ -247,6 +253,17 @@ export default function App() {
   const [transcriptOpen, setTranscriptOpen] = useState(false);
   const [activeNav, setActiveNav] = useState<NavId>("groups");
 
+  // Keep the newest bubble in view: pin the scroll container to the bottom
+  // whenever the list grows or the streamed answer/tool pill updates its height,
+  // so the admin never has to scroll down manually. ponytail: always-pin (no
+  // "only if already at bottom" check) - a single-column admin chat has no
+  // scroll-up-to-read-history flow yet where that would fight the user.
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = listRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [messages, streamText, toolStatus, busy]);
+
   // In-scope nav items set the active route and seed a starter question into
   // the composer (they never auto-send - the admin edits/sends). Out-of-scope
   // items never call this: they are inert in the sidebar.
@@ -331,8 +348,7 @@ export default function App() {
     <div style={appShell}>
       <SidebarNav active={activeNav} onSelect={handleNavSelect} />
       <div style={pageStyle}>
-        <h1 style={{ fontSize: 20 }}>PlanMonster Admin</h1>
-        <div style={listStyle}>
+        <div ref={listRef} style={listStyle}>
           {messages.map((message) => (
             <MessageView
               key={message.id}
@@ -345,7 +361,10 @@ export default function App() {
           {busy && (
             <div style={assistantBubble}>
               {toolStatus && (
-                <span style={pillStyle}>{toolPillLabel(toolStatus)}</span>
+                <ToolCallStatus
+                  status={toChipStatus(toolStatus)}
+                  method={toolStatus.tool}
+                />
               )}
               <div>{streamText || "…"}</div>
             </div>
@@ -361,7 +380,7 @@ export default function App() {
             placeholder="Ask about agent runs…"
             disabled={busy}
           />
-          <button type="submit" disabled={busy}>
+          <button type="submit" disabled={busy} style={{ borderRadius: 0 }}>
             Send
           </button>
         </form>
@@ -411,28 +430,22 @@ const listStyle: CSSProperties = {
 const userBubble: CSSProperties = {
   alignSelf: "flex-end",
   background: "#e8f0fe",
-  borderRadius: 8,
+  borderRadius: 0,
   padding: "8px 12px",
   maxWidth: "80%",
 };
 const assistantBubble: CSSProperties = {
   alignSelf: "flex-start",
   background: "#f4f4f5",
-  borderRadius: 8,
+  borderRadius: 0,
   padding: "8px 12px",
   maxWidth: "100%",
   width: "100%",
 };
-const pillStyle: CSSProperties = {
-  display: "inline-block",
-  fontSize: 12,
-  color: "#3730a3",
-  background: "#e0e7ff",
-  borderRadius: 999,
-  padding: "2px 8px",
-  marginBottom: 6,
-};
 const fallbackStyle: CSSProperties = { color: "#b91c1c", fontSize: 13 };
+// Gap between the last line of assistant prose and a following inline
+// component (chart/table), so they never sit flush against each other.
+const textBeforeInlineStyle: CSSProperties = { marginBottom: 8 };
 // The synthesis-answer actions slot (SEAM for PR 4), now holding the drill-in.
 const actionsSlotStyle: CSSProperties = { display: "flex", gap: 8 };
 const drillInButton: CSSProperties = {
@@ -449,6 +462,7 @@ const formStyle: CSSProperties = { display: "flex", gap: 8 };
 const inputStyle: CSSProperties = {
   flex: 1,
   padding: "8px 12px",
-  borderRadius: 8,
+  borderRadius: 0,
   border: "1px solid #d4d4d8",
+  background: "#ffffff", // opaque so the page drafting grid never shows through
 };

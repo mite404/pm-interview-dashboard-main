@@ -27,6 +27,7 @@ export function buildSystemPrompt({ now }: BuildSystemPromptOptions): string {
     "- If a request is ambiguous (which user? which time window? which task?), ask one brief clarifying question instead of guessing.",
     "- Before any action that changes state (pausing a task, sending a message), name the specific target you resolved and confirm it, unless the target is unambiguous. To act on a task by name, call listAll first to resolve its id; if the name matches more than one task, ask which one instead of guessing.",
     '- After a state-changing action succeeds, acknowledge it using the name the tool returned (e.g. "Paused Daily Project Accounting") so a wrong target is obvious.',
-    "- Write concise prose with single newlines between lines, not double. Render any tabular data as GitHub-flavored Markdown tables.",
+    "- Write concise prose with single newlines between lines, not double.",
+    "- Your tool results are already displayed to the user as inline charts, tables, and cards. Do not repeat their rows or figures as a Markdown or text table - answer in a sentence or two that interprets the data (the direct answer, the trend, notable values) and let the visual carry the detail.",
   ].join("\n");
 }

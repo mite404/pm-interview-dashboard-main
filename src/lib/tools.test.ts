@@ -3,6 +3,7 @@ import type { Id } from "../../convex/_generated/dataModel";
 import type { AggregateStats, GroupsList } from "./types";
 import {
   toConversations,
+  validateDailyUniqueUsers,
   toStatusBars,
   validateAggregateStats,
   validateListAll,
@@ -250,5 +251,29 @@ describe("toStatusBars", () => {
   it("produces three bars that sum to total", () => {
     const sum = toStatusBars(seededStats).reduce((n, b) => n + b.count, 0);
     expect(sum).toBe(seededStats.total);
+  });
+});
+
+describe("validateDailyUniqueUsers", () => {
+  it("passes through days, lane, and groupFolder", () => {
+    expect(
+      validateDailyUniqueUsers({ days: 7, lane: "web", groupFolder: "acme" }),
+    ).toEqual({ days: 7, lane: "web", groupFolder: "acme" });
+  });
+
+  it("defaults to {} when the model omits all args (last-30 all-time)", () => {
+    expect(validateDailyUniqueUsers(undefined)).toEqual({});
+    expect(validateDailyUniqueUsers({})).toEqual({});
+  });
+
+  it("throws on an unknown lane, naming the valid set", () => {
+    expect(() => validateDailyUniqueUsers({ lane: "telegram" })).toThrow(
+      /lane.*web/,
+    );
+  });
+
+  it("throws on a non-number days and an unknown key", () => {
+    expect(() => validateDailyUniqueUsers({ days: "7" })).toThrow(/days/);
+    expect(() => validateDailyUniqueUsers({ weeks: 1 })).toThrow(/weeks/);
   });
 });

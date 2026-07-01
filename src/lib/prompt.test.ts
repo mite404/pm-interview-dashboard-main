@@ -17,5 +17,8 @@ describe("buildSystemPrompt", () => {
     expect(prompt).toMatch(/confirm/i);
     // single-newline output (brief line 78)
     expect(prompt).toMatch(/single newline/i);
+    // no duplicate data: results render inline, so prose must not re-tabulate
+    expect(prompt).toMatch(/do not repeat/i);
+    expect(prompt).not.toMatch(/render any tabular data as/i);
   });
 });

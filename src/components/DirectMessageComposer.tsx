@@ -101,7 +101,7 @@ export function DirectMessageComposer() {
             setChannel(event.target.value as Channel);
           }}
           disabled={pending !== null}
-          className="rounded-md border border-dc-border-neutral bg-dc-surface px-2 py-[6px] text-[13px] text-dc-navy"
+          className="rounded-none border border-dc-border-neutral bg-dc-surface px-2 py-[6px] text-[13px] text-dc-navy"
         >
           {CHANNELS.map((c) => (
             <option key={c} value={c}>

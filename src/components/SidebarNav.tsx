@@ -91,7 +91,7 @@ const NAV_ITEMS: NavItemDef[] = [
 ];
 
 const ITEM_BASE =
-  "flex w-full items-center gap-3 rounded-lg px-3 py-[9px] text-left text-[14.5px] text-dc-navy transition-[background-color,border-color] duration-100";
+  "flex w-full items-center gap-3 rounded-none px-3 py-[9px] text-left text-[14.5px] text-dc-navy transition-[background-color,border-color] duration-100";
 
 interface SidebarNavProps {
   active: NavId;
@@ -172,7 +172,7 @@ function SelectGroup({
       <div className="hd-cond mb-1.5 text-[10.5px] tracking-[0.1em] text-dc-faint">
         {label}
       </div>
-      <div className="flex w-full items-center gap-2 rounded-lg border-[1.5px] border-dc-border-neutral bg-white px-3 py-[9px] text-[13.5px] text-dc-navy transition-colors hover:border-dc-navy">
+      <div className="flex w-full items-center gap-2 rounded-none border-[1.5px] border-dc-border-neutral bg-white px-3 py-[9px] text-[13.5px] text-dc-navy transition-colors hover:border-dc-navy">
         {children}
         <ChevronDown className="ml-auto size-4 flex-none text-dc-faint" />
       </div>

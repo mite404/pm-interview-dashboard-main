@@ -62,7 +62,8 @@ export type ToolResult =
   | { tool: "resume"; data: TaskDef }
   | { tool: "enqueue"; data: EnqueuedMessageId }
   | { tool: "getReplyLineage"; data: ReplyLineage }
-  | { tool: "listCostRollups"; data: CostBreakdownRow[] };
+  | { tool: "listCostRollups"; data: CostBreakdownRow[] }
+  | { tool: "dailyUniqueUsers"; data: DailyUniqueUsers };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -96,6 +97,10 @@ export type MessagesList = FunctionReturnType<
 export type TaskDefsList = FunctionReturnType<
   typeof api.intelligenceTaskDefs.listAll
 >; // -> Doc<"intelligenceTaskDefs">[]: name, status, cronExpression, timezone, ...
+
+export type DailyUniqueUsers = FunctionReturnType<
+  typeof api.dashboard.dailyUniqueUsers
+>; // -> { day: string /* YYYY-MM-DD */; uniqueUsers: number }[]
 
 // The cross-layer contract between the calc (`toStatusBars` in tools.ts) and
 // the pure chart (commit 7): both import it from here. The transform runs in
@@ -154,6 +159,10 @@ export type ReplyLineageArgs = FunctionArgs<
 export type CostRollupsArgs = FunctionArgs<
   typeof api.overnightBriefRuns.listCostRollups
 >; // -> { after: number; groupFolder?: string; limit?: number }
+
+export type DailyUniqueUsersArgs = FunctionArgs<
+  typeof api.dashboard.dailyUniqueUsers
+>; // -> { days?: number; groupFolder?: string; lane?: "web" | "whatsapp" | "imessage" | "sms" }
 
 // A registry entry the loop dispatches uniformly. `execute` validates the raw
 // LLM args, runs the tool, and wraps the return into the discriminated

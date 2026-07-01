@@ -15,6 +15,8 @@ import type {
   AggregateTokenUsage,
   AggregateTokenUsageArgs,
   Conversation,
+  DailyUniqueUsers,
+  DailyUniqueUsersArgs,
   EnqueueArgs,
   EnqueuedMessageId,
   GroupsList,
@@ -773,6 +775,77 @@ export const listCostRollupsTool: RegisteredTool = {
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
 
+// ── dailyUniqueUsers: active users per day (a time series -> line chart) ──
+// The one time-series tool, so it renders as a LINE chart (a distinct chart
+// type from the bar `StatusBreakdownChart`). A plain query, so `.query()`.
+
+const LANES = ["web", "whatsapp", "imessage", "sms"] as const;
+
+export function validateDailyUniqueUsers(raw: unknown): DailyUniqueUsersArgs {
+  const record = asArgsRecord(raw, "dailyUniqueUsers");
+  assertKnownKeys(record, ["days", "groupFolder", "lane"], "dailyUniqueUsers");
+  const args: DailyUniqueUsersArgs = {};
+  const days = optionalNumber(record.days, "days", "dailyUniqueUsers");
+  if (days !== undefined) args.days = days;
+  const groupFolder = optionalString(
+    record.groupFolder,
+    "groupFolder",
+    "dailyUniqueUsers",
+  );
+  if (groupFolder !== undefined) args.groupFolder = groupFolder;
+  const lane = optionalString(record.lane, "lane", "dailyUniqueUsers");
+  if (lane !== undefined) {
+    if (!LANES.includes(lane as (typeof LANES)[number])) {
+      throw new Error(
+        `dailyUniqueUsers: \`lane\` must be one of ${LANES.join(", ")}`,
+      );
+    }
+    args.lane = lane as (typeof LANES)[number];
+  }
+  return args;
+}
+
+function runDailyUniqueUsers(
+  args: DailyUniqueUsersArgs,
+  deps: ToolDeps,
+): Promise<DailyUniqueUsers> {
+  return deps.convex.query(api.dashboard.dailyUniqueUsers, args);
+}
+
+export const dailyUniqueUsersTool: RegisteredTool = {
+  name: "dailyUniqueUsers",
+  description:
+    "Active (unique) users per day, as a time series for a line chart. Use for " +
+    "'active users each day', engagement trends, or 'this week/month' activity. " +
+    "Pass `days` for the window (7 for this week, 30 for this month); omit for " +
+    "the last 30. Optionally scope by `lane` (web, whatsapp, imessage, sms) or " +
+    "`groupFolder`.",
+  parameters: {
+    type: "object",
+    properties: {
+      days: {
+        type: "number",
+        description:
+          "Optional window size in days (1-90). Omit for the last 30.",
+      },
+      lane: {
+        type: "string",
+        enum: [...LANES],
+        description: "Optional channel filter. Omit to count all channels.",
+      },
+      groupFolder: {
+        type: "string",
+        description: "Optional group folder to scope to. Omit for all groups.",
+      },
+    },
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runDailyUniqueUsers(validateDailyUniqueUsers(rawArgs), deps).then(
+      (data) => ({ tool: "dailyUniqueUsers", data }),
+    ),
+};
+
 export const registry: RegisteredTool[] = [
   getAggregateStatsTool,
   getAggregateTokenUsageTool,
@@ -785,6 +858,7 @@ export const registry: RegisteredTool[] = [
   enqueueTool,
   getReplyLineageTool,
   listCostRollupsTool,
+  dailyUniqueUsersTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).
