@@ -6,6 +6,7 @@
 // network-free and deterministic to test.
 
 import { api } from "../../convex/_generated/api";
+import type { Id } from "../../convex/_generated/dataModel";
 import type { OpenRouterTool } from "./openrouter";
 import type {
   AggregateStats,
@@ -13,6 +14,8 @@ import type {
   AggregateTokenUsage,
   AggregateTokenUsageArgs,
   Conversation,
+  EnqueueArgs,
+  EnqueuedMessageId,
   GroupsList,
   InvocationStatus,
   InvocationsList,
@@ -21,8 +24,11 @@ import type {
   ListConversationsArgs,
   ListRecentToolArgs,
   MessagesList,
+  PauseArgs,
   RegisteredTool,
+  ResumeArgs,
   StatusBar,
+  TaskDef,
   TaskDefsList,
   ToolDeps,
   ToolResult,
@@ -428,6 +434,187 @@ export const listAllTool: RegisteredTool = {
     })),
 };
 
+// ── mutation tools (PR 3): the LLM -> Convex write boundary ──────────────
+// Structural validate is safety layer 1 of 3 (see AGENTS.md / the brief): it
+// only proves the args are *well-formed* (a non-empty id string) - it
+// deliberately does NOT check the id exists or resolve names. Layer 2
+// (confirm-on-ambiguity) lives in the system prompt; layer 3 (a named
+// acknowledgment) falls out of `run` returning the patched doc, so a wrong
+// target is visible in the assistant's reply immediately.
+
+// pause and resume take the identical arg, so they share one validator. The
+// cast to the branded `Id` is the trust boundary itself: runtime JSON can only
+// prove it is a non-empty string; Convex verifies the id server-side and 404s
+// a bad one, which the loop feeds back for self-correction.
+export function validateTaskDefId(
+  toolName: string,
+  raw: unknown,
+): { taskDefId: Id<"intelligenceTaskDefs"> } {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error(`${toolName} args must be an object`);
+  }
+  const record = raw as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (key !== "taskDefId") {
+      throw new Error(`${toolName}: unknown argument: ${key}`);
+    }
+  }
+  const { taskDefId } = record;
+  if (typeof taskDefId !== "string" || taskDefId.length === 0) {
+    throw new Error(`${toolName}: \`taskDefId\` must be a non-empty id string`);
+  }
+  return { taskDefId: taskDefId as Id<"intelligenceTaskDefs"> };
+}
+
+// The one JSON Schema both single-id mutations advertise (id-in, doc-out).
+const taskDefIdParameters: Record<string, unknown> = {
+  type: "object",
+  properties: {
+    taskDefId: {
+      type: "string",
+      description:
+        "The id of the task to act on, resolved from `listAll` - never a task " +
+        "name. Call `listAll` first if you only have the name.",
+    },
+  },
+  required: ["taskDefId"],
+  additionalProperties: false,
+};
+
+/**
+ * Pauses a scheduled intelligence task. The one side effect: a Convex mutation.
+ * @param args - validated args from {@link validateTaskDefId}
+ * @param deps - injected dependencies (the Convex client)
+ * @returns the patched task doc (carries `name` + `status` for the named ack)
+ */
+export function runPause(args: PauseArgs, deps: ToolDeps): Promise<TaskDef> {
+  return deps.convex.mutation(api.intelligenceTaskDefs.pause, args);
+}
+
+/**
+ * Resumes a paused intelligence task. The one side effect: a Convex mutation.
+ * @param args - validated args from {@link validateTaskDefId}
+ * @param deps - injected dependencies (the Convex client)
+ * @returns the patched task doc (carries `name` + `status` for the named ack)
+ */
+export function runResume(args: ResumeArgs, deps: ToolDeps): Promise<TaskDef> {
+  return deps.convex.mutation(api.intelligenceTaskDefs.resume, args);
+}
+
+export const pauseTool: RegisteredTool = {
+  name: "pause",
+  description:
+    "Pause a scheduled intelligence task so it stops running on its cron. " +
+    "Takes the task's id (resolve it from `listAll` first). Returns the " +
+    "updated task; confirm the pause by the returned name.",
+  parameters: taskDefIdParameters,
+  execute: (rawArgs, deps) =>
+    runPause(validateTaskDefId("pause", rawArgs), deps).then((data) => ({
+      tool: "pause",
+      data,
+    })),
+};
+
+export const resumeTool: RegisteredTool = {
+  name: "resume",
+  description:
+    "Resume a paused intelligence task so it runs on its cron again. Takes " +
+    "the task's id (resolve it from `listAll` first). Returns the updated " +
+    "task; confirm the resume by the returned name.",
+  parameters: taskDefIdParameters,
+  execute: (rawArgs, deps) =>
+    runResume(validateTaskDefId("resume", rawArgs), deps).then((data) => ({
+      tool: "resume",
+      data,
+    })),
+};
+
+// ── enqueue: send an admin direct message (PR 3) ─────────────────────────
+// Structural validate (layer 1): a well-formed group id, a known channel, and a
+// non-empty body. It does NOT resolve the group by name or check delivery - the
+// group is resolved to an id upstream (like pause/resume), and delivery is inert
+// on the preview (no channel creds), so this is a judgment showcase, not a live
+// send. Word-count / group-existence are enforced server-side by the mutation.
+const CHANNELS = ["whatsapp", "sms", "imessage"] as const;
+
+export function validateEnqueue(raw: unknown): EnqueueArgs {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new Error("enqueue args must be an object");
+  }
+  const record = raw as Record<string, unknown>;
+  for (const key of Object.keys(record)) {
+    if (!["groupId", "selectedChannel", "messageBody"].includes(key)) {
+      throw new Error(`enqueue: unknown argument: ${key}`);
+    }
+  }
+  const { groupId, selectedChannel, messageBody } = record;
+  if (typeof groupId !== "string" || groupId.length === 0) {
+    throw new Error("enqueue: `groupId` must be a non-empty id string");
+  }
+  if (
+    typeof selectedChannel !== "string" ||
+    !CHANNELS.includes(selectedChannel as (typeof CHANNELS)[number])
+  ) {
+    throw new Error(
+      `enqueue: \`selectedChannel\` must be one of ${CHANNELS.join(", ")}`,
+    );
+  }
+  if (typeof messageBody !== "string" || messageBody.trim().length === 0) {
+    throw new Error("enqueue: `messageBody` must be a non-empty string");
+  }
+  return {
+    groupId: groupId as Id<"registeredGroups">,
+    selectedChannel: selectedChannel as (typeof CHANNELS)[number],
+    messageBody,
+  };
+}
+
+/**
+ * Enqueues an admin direct message. The one side effect: a Convex mutation.
+ * @param args - validated args from {@link validateEnqueue}
+ * @param deps - injected dependencies (the Convex client)
+ * @returns the id of the inserted `adminDirectMessages` row
+ */
+export function runEnqueue(
+  args: EnqueueArgs,
+  deps: ToolDeps,
+): Promise<EnqueuedMessageId> {
+  return deps.convex.mutation(api.adminDirectMessages.enqueue, args);
+}
+
+export const enqueueTool: RegisteredTool = {
+  name: "enqueue",
+  description:
+    "Queue an admin direct message to a group over a chosen channel " +
+    "(whatsapp, sms, or imessage). Takes the group's id (resolve it first), " +
+    "the channel, and the message body. Confirm the target before sending.",
+  parameters: {
+    type: "object",
+    properties: {
+      groupId: {
+        type: "string",
+        description: "The id of the group to message - never a group name.",
+      },
+      selectedChannel: {
+        type: "string",
+        enum: [...CHANNELS],
+        description: "The delivery channel.",
+      },
+      messageBody: {
+        type: "string",
+        description: "The message text (max 250 words, enforced server-side).",
+      },
+    },
+    required: ["groupId", "selectedChannel", "messageBody"],
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runEnqueue(validateEnqueue(rawArgs), deps).then((data) => ({
+      tool: "enqueue",
+      data,
+    })),
+};
+
 // ── registry wiring (the two facets the shell hands the loop) ────────────
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
@@ -439,6 +626,9 @@ export const registry: RegisteredTool[] = [
   listConversationsTool,
   listByChatJidTool,
   listAllTool,
+  pauseTool,
+  resumeTool,
+  enqueueTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).

@@ -5,8 +5,10 @@
 // stores - the on-screen ChatMessage list and, per turn, the OpenRouter wire
 // array it feeds the loop.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
+import { api } from "../convex/_generated/api";
+import type { Id } from "../convex/_generated/dataModel";
 import { convex } from "./lib/convexClient";
 import { runTurn } from "./lib/loop";
 import type { LoopDeps } from "./lib/loop";
@@ -29,6 +31,8 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
+import { TaskControl } from "./components/TaskControl";
+import { DirectMessageComposer } from "./components/DirectMessageComposer";
 
 // ── config + injected dependencies ───────────────────────────────────────
 // Built once: the loop's real services, wired to the live Convex client. Only
@@ -77,7 +81,8 @@ function ToolResultChart({ result }: { result: ToolResult }) {
   // Discriminate on the tool, then transform the raw result into the props each
   // pure component wants (the transform runs in the shell, never in the chart).
   // The switch is exhaustive over the union - a new ToolResult member won't
-  // compile until it's handled here.
+  // compile until it's handled here. Mutations (pause/resume) carry their meaning
+  // in the assistant's prose acknowledgment, so they render nothing inline.
   switch (result.tool) {
     case "getAggregateStats": {
       const stats = result.data;
@@ -113,6 +118,10 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       return null;
     case "listAll":
       return <TaskDefsTable rows={toTaskRows(result.data)} />;
+    case "pause":
+    case "resume":
+    case "enqueue":
+      return null;
   }
 }
 
@@ -139,6 +148,64 @@ function MessageView({ message }: { message: ChatMessage }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── Task Control panel (design 07) ───────────────────────────────────────
+// The optimistic-mutation showcase, wired to the LIVE deployment: it resolves
+// one real task on mount (so the id is genuine, not the chat flow's stub) and
+// hands `TaskControl` real pause/resume mutations. Run Now is inert here (no
+// run-now backend on the preview), matching the enqueue "judgment showcase, not
+// a live send" stance. Self-contained so the chat shell below stays untouched.
+interface DemoTask {
+  id: Id<"intelligenceTaskDefs">;
+  name: string;
+  schedule: string;
+  status: "active" | "paused";
+}
+
+function TaskControlPanel() {
+  const [task, setTask] = useState<DemoTask | null>(null);
+
+  useEffect(() => {
+    void convex
+      .query(api.intelligenceTaskDefs.listAll, {})
+      .then((tasks) => {
+        // Pick the first task that can actually toggle (skip cancelled ones).
+        const live = tasks.find((t) => t.status !== "cancelled");
+        if (live) {
+          setTask({
+            id: live._id,
+            name: live.name,
+            schedule: `intelligenceTaskDefs · ${live.cronExpression}`,
+            status: live.status === "paused" ? "paused" : "active",
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to load a task for Task Control:", error);
+      });
+  }, []);
+
+  if (!task) return null;
+
+  return (
+    <TaskControl
+      task={{ name: task.name, schedule: task.schedule }}
+      status={task.status}
+      onToggle={(next) =>
+        convex.mutation(
+          next === "paused"
+            ? api.intelligenceTaskDefs.pause
+            : api.intelligenceTaskDefs.resume,
+          { taskDefId: task.id },
+        )
+      }
+      onRunNow={() => {
+        // Inert on the preview - no run-now backend wired.
+        console.log(`[task-control] Run Now (inert) for ${task.name}`);
+      }}
+    />
   );
 }
 
@@ -252,6 +319,8 @@ export default function App() {
           Send
         </button>
       </form>
+      <TaskControlPanel />
+      <DirectMessageComposer />
     </div>
   );
 }
