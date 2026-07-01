@@ -35,6 +35,8 @@ import {
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { Markdown } from "./components/Markdown";
 import { TokenUsageCard } from "./components/TokenUsageCard";
+import { SidebarNav } from "./components/SidebarNav";
+import type { NavId } from "./components/SidebarNav";
 import { StatusBreakdownChart } from "./components/StatusBreakdownChart";
 import { TaskControl } from "./components/TaskControl";
 import { DirectMessageComposer } from "./components/DirectMessageComposer";
@@ -240,6 +242,15 @@ export default function App() {
   const [streamText, setStreamText] = useState("");
   const [toolStatus, setToolStatus] = useState<ToolStatus | null>(null);
   const [transcriptOpen, setTranscriptOpen] = useState(false);
+  const [activeNav, setActiveNav] = useState<NavId>("groups");
+
+  // In-scope nav items set the active route and seed a starter question into
+  // the composer (they never auto-send - the admin edits/sends). Out-of-scope
+  // items never call this: they are inert in the sidebar.
+  function handleNavSelect(id: NavId, seed: string) {
+    setActiveNav(id);
+    setInput(seed);
+  }
 
   async function send() {
     const text = input.trim();
@@ -314,65 +325,77 @@ export default function App() {
   }
 
   return (
-    <div style={pageStyle}>
-      <h1 style={{ fontSize: 20 }}>PlanMonster Admin</h1>
-      <div style={listStyle}>
-        {messages.map((message) => (
-          <MessageView
-            key={message.id}
-            message={message}
-            onOpenTranscript={() => {
-              setTranscriptOpen(true);
+    <div style={appShell}>
+      <SidebarNav active={activeNav} onSelect={handleNavSelect} />
+      <div style={pageStyle}>
+        <h1 style={{ fontSize: 20 }}>PlanMonster Admin</h1>
+        <div style={listStyle}>
+          {messages.map((message) => (
+            <MessageView
+              key={message.id}
+              message={message}
+              onOpenTranscript={() => {
+                setTranscriptOpen(true);
+              }}
+            />
+          ))}
+          {busy && (
+            <div style={assistantBubble}>
+              {toolStatus && (
+                <span style={pillStyle}>{toolPillLabel(toolStatus)}</span>
+              )}
+              <div>{streamText || "…"}</div>
+            </div>
+          )}
+        </div>
+        <form onSubmit={onSubmit} style={formStyle}>
+          <input
+            style={inputStyle}
+            value={input}
+            onChange={(event) => {
+              setInput(event.target.value);
             }}
+            placeholder="Ask about agent runs…"
+            disabled={busy}
           />
-        ))}
-        {busy && (
-          <div style={assistantBubble}>
-            {toolStatus && (
-              <span style={pillStyle}>{toolPillLabel(toolStatus)}</span>
-            )}
-            <div>{streamText || "…"}</div>
-          </div>
-        )}
-      </div>
-      <form onSubmit={onSubmit} style={formStyle}>
-        <input
-          style={inputStyle}
-          value={input}
-          onChange={(event) => {
-            setInput(event.target.value);
-          }}
-          placeholder="Ask about agent runs…"
-          disabled={busy}
+          <button type="submit" disabled={busy}>
+            Send
+          </button>
+        </form>
+        <TaskControlPanel />
+        <DirectMessageComposer />
+        <Transcript
+          open={transcriptOpen}
+          onOpenChange={setTranscriptOpen}
+          contact={fixtureContact}
+          messages={fixtureMessages}
+          dateLabel={fixtureDateLabel}
+          messageCount={214} // Maya's lifetime total (design); the fixture shows a recent slice
         />
-        <button type="submit" disabled={busy}>
-          Send
-        </button>
-      </form>
-      <TaskControlPanel />
-      <DirectMessageComposer />
-      <Transcript
-        open={transcriptOpen}
-        onOpenChange={setTranscriptOpen}
-        contact={fixtureContact}
-        messages={fixtureMessages}
-        dateLabel={fixtureDateLabel}
-        messageCount={214} // Maya's lifetime total (design); the fixture shows a recent slice
-      />
+      </div>
     </div>
   );
 }
 
 // ── minimal plain styling (shadcn is Phase 2) ────────────────────────────
+// The app shell: the sidebar nav beside the chat column. The sidebar owns its
+// own width; the chat column flexes to fill the rest.
+const appShell: CSSProperties = {
+  display: "flex",
+  height: "100vh",
+  boxSizing: "border-box",
+};
 const pageStyle: CSSProperties = {
   fontFamily: "system-ui, sans-serif",
+  flex: 1,
   maxWidth: 760,
   margin: "0 auto",
   padding: 24,
   display: "flex",
   flexDirection: "column",
   gap: 16,
-  height: "100vh",
+  height: "100%",
+  minWidth: 0,
   boxSizing: "border-box",
 };
 const listStyle: CSSProperties = {
