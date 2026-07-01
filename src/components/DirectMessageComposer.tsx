@@ -30,6 +30,7 @@ export function DirectMessageComposer() {
   const [channel, setChannel] = useState<Channel>("whatsapp");
   const [body, setBody] = useState("");
   const [pending, setPending] = useState<PendingSend | null>(null);
+  const [remaining, setRemaining] = useState(UNDO_WINDOW_MS / 1000);
   const [toast, setToast] = useState<string | null>(null);
 
   // Cancel any in-flight send if the component unmounts mid-window. The ref is
@@ -40,6 +41,19 @@ export function DirectMessageComposer() {
     pendingRef.current = pending;
   }, [pending]);
   useEffect(() => () => pendingRef.current?.undo(), []);
+
+  // Tick the visible countdown once per second while a send is pending. The
+  // interval lives exactly as long as `pending` does - it is torn down (and the
+  // display reset) the moment the send fires or is undone.
+  useEffect(() => {
+    if (!pending) return;
+    const id = setInterval(() => {
+      setRemaining((s) => Math.max(0, s - 1));
+    }, 1000);
+    return () => {
+      clearInterval(id);
+    };
+  }, [pending]);
 
   useEffect(() => {
     void convex
@@ -57,6 +71,7 @@ export function DirectMessageComposer() {
     if (!recipient || body.trim().length === 0 || pending) return;
     const messageBody = body;
     setToast(null);
+    setRemaining(UNDO_WINDOW_MS / 1000);
     // Defer the real write; the pill can cancel it during the window.
     const handle = scheduleWithUndo(() => {
       setPending(null);
@@ -135,7 +150,7 @@ export function DirectMessageComposer() {
         </button>
         {pending && (
           <span className="inline-flex items-center gap-[8px] rounded-none border border-dc-warning-border bg-dc-warning-bg px-3 py-2 font-mono text-[11.5px] text-dc-warning-fg">
-            Sending in {UNDO_WINDOW_MS / 1000}s…
+            Sending in {remaining}s…
             <button
               type="button"
               onClick={undo}

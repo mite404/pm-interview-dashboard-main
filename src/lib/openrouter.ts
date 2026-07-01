@@ -165,12 +165,13 @@ export function drainSSEBuffer(
 // ── network actions (T3): the two OpenRouter calls ───────────────────────
 
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-// Overridable via VITE_OPENROUTER_MODEL (set in .env.local); defaults to a fast,
-// cheap, tool-capable Claude. Any OpenRouter tool-calling model works - bump to
-// `anthropic/claude-sonnet-4.5` for more capability. Use a currently-routable
-// slug: retired ones (e.g. `claude-3.5-sonnet`) 404 with "No endpoints found".
+// Overridable via VITE_OPENROUTER_MODEL (set in .env.local); defaults to a
+// capable, tool-calling Claude. Any OpenRouter tool-calling model works - drop
+// to `anthropic/claude-haiku-4.5` for a faster, cheaper option. Use a
+// currently-routable slug: retired ones (e.g. `claude-3.5-sonnet`) 404 with
+// "No endpoints found".
 const MODEL =
-  import.meta.env.VITE_OPENROUTER_MODEL ?? "anthropic/claude-haiku-4.5";
+  import.meta.env.VITE_OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5";
 
 function authHeaders(): Record<string, string> {
   return {

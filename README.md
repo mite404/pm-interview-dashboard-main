@@ -29,7 +29,7 @@ Set these in `.env.local`:
 | ------------------------- | -------- | ---------------------------------------- | ----------------------------------------------------------------- |
 | `VITE_CONVEX_URL`         | yes      | `https://utmost-poodle-412.convex.cloud` | The deployed Convex backend (already seeded with synthetic data). |
 | `VITE_OPENROUTER_API_KEY` | yes      | -                                        | Your OpenRouter key. Powers the chat LLM.                         |
-| `VITE_OPENROUTER_MODEL`   | no       | `anthropic/claude-haiku-4.5`             | Must be a currently-routable OpenRouter slug.                     |
+| `VITE_OPENROUTER_MODEL`   | no       | `anthropic/claude-sonnet-4.5`            | Must be a currently-routable OpenRouter slug.                     |
 
 ## Scripts
 
