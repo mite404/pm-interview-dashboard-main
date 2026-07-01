@@ -16,8 +16,10 @@ import type {
   GroupsList,
   InvocationStatus,
   InvocationsList,
+  ListByChatJidArgs,
   ListConversationsArgs,
   ListRecentToolArgs,
+  MessagesList,
   RegisteredTool,
   StatusBar,
   ToolDeps,
@@ -329,6 +331,66 @@ export const listConversationsTool: RegisteredTool = {
     ),
 };
 
+// ── listByChatJid: the synthesis read (one conversation's messages) ──────
+// The bounded window the model summarizes for "what's X been talking about".
+// `validate` only guards structure (a non-empty chatJid): a wrong-but-well-
+// formed jid returns [] from Convex, which feeds back so the model self-
+// corrects rather than us second-guessing the id. The "chatJid comes from
+// listConversations" dependency lives in the description, not the prompt.
+
+export function validateListByChatJid(raw: unknown): ListByChatJidArgs {
+  const record = asArgsRecord(raw, "listByChatJid");
+  assertKnownKeys(record, ["chatJid", "limit"], "listByChatJid");
+  const chatJid = optionalString(record.chatJid, "chatJid", "listByChatJid");
+  if (chatJid === undefined || chatJid.trim() === "") {
+    throw new Error(
+      "listByChatJid: `chatJid` is required and must be non-empty (resolve it from listConversations first)",
+    );
+  }
+  const args: ListByChatJidArgs = { chatJid };
+  const limit = optionalNumber(record.limit, "limit", "listByChatJid");
+  if (limit !== undefined) args.limit = limit;
+  return args;
+}
+
+function runListByChatJid(
+  args: ListByChatJidArgs,
+  deps: ToolDeps,
+): Promise<MessagesList> {
+  return deps.convex.query(api.messages.listByChatJid, args);
+}
+
+export const listByChatJidTool: RegisteredTool = {
+  name: "listByChatJid",
+  description:
+    "Recent messages for ONE conversation, oldest-first - use this to answer " +
+    "'what has X been talking about', 'where did we leave off', etc. by " +
+    "summarizing the window in prose. `chatJid` MUST come from " +
+    "listConversations: call that first to resolve a name to its jid. A wrong " +
+    "or unknown jid returns an empty list (re-check the name). Optional `limit` " +
+    "bounds the window (default 100, max 200).",
+  parameters: {
+    type: "object",
+    properties: {
+      chatJid: {
+        type: "string",
+        description: "The conversation's jid, resolved via listConversations.",
+      },
+      limit: {
+        type: "number",
+        description: "Optional max messages to fetch (default 100, max 200).",
+      },
+    },
+    required: ["chatJid"],
+    additionalProperties: false,
+  },
+  execute: (rawArgs, deps) =>
+    runListByChatJid(validateListByChatJid(rawArgs), deps).then((data) => ({
+      tool: "listByChatJid",
+      data,
+    })),
+};
+
 // ── registry wiring (the two facets the shell hands the loop) ────────────
 // One array drives both advertising (toOpenRouterTools) and dispatch
 // (makeRunTool). Adding a tool = define it + add it here.
@@ -338,6 +400,7 @@ export const registry: RegisteredTool[] = [
   getAggregateTokenUsageTool,
   listRecentTool,
   listConversationsTool,
+  listByChatJidTool,
 ];
 
 // Advertise the registry to the model (the `tools` param for decideTool).

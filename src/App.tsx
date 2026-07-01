@@ -103,6 +103,12 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       // conversation, then answers in prose (or chains into listByChatJid). No
       // inline chart, so keep the exhaustive switch honest with an explicit null.
       return null;
+    case "listByChatJid":
+      // Synthesis renders as prose via the Markdown path, not a chart; the raw
+      // transcript is a separate, explicitly-requested drill-in (PR 4). The
+      // result still rides on the message as the "synthesis answer" discriminant
+      // for the actions seam below.
+      return null;
   }
 }
 
@@ -119,6 +125,14 @@ function MessageView({ message }: { message: ChatMessage }) {
         >
           <ToolResultChart result={message.toolResult} />
         </ErrorBoundary>
+      )}
+      {!isUser && message.toolResult?.tool === "listByChatJid" && (
+        <div style={actionsSlotStyle} data-testid="synthesis-actions">
+          {/* SEAM: PR 4 drill-in action attaches here.
+              This is a synthesis answer (its toolResult is a listByChatJid
+              window). PR 4's "View full transcript" button mounts in this slot
+              and reads message.toolResult.data to populate the Transcript Sheet. */}
+        </div>
       )}
     </div>
   );
@@ -282,6 +296,9 @@ const pillStyle: CSSProperties = {
   marginBottom: 6,
 };
 const fallbackStyle: CSSProperties = { color: "#b91c1c", fontSize: 13 };
+// The synthesis-answer actions slot (SEAM for PR 4). Empty flex row so it has
+// zero footprint until PR 4 mounts the "View full transcript" button here.
+const actionsSlotStyle: CSSProperties = { display: "flex", gap: 8 };
 const formStyle: CSSProperties = { display: "flex", gap: 8 };
 const inputStyle: CSSProperties = {
   flex: 1,

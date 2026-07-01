@@ -28,7 +28,8 @@ export type ToolResult =
   | { tool: "getAggregateStats"; data: AggregateStats }
   | { tool: "getAggregateTokenUsage"; data: AggregateTokenUsage }
   | { tool: "listRecent"; data: InvocationsList }
-  | { tool: "listConversations"; data: Conversation[] };
+  | { tool: "listConversations"; data: Conversation[] }
+  | { tool: "listByChatJid"; data: MessagesList };
 
 // Phase 2 tool returns, typed from the `api` so the card/chart components can
 // never drift from the live backend shape.
@@ -59,6 +60,10 @@ export interface Conversation {
   jid: string;
 }
 
+export type MessagesList = FunctionReturnType<
+  typeof api.messages.listByChatJid
+>; // -> Doc<"messages">[] (oldest-first): content, senderName, isFromMe, timestamp, ...
+
 // The cross-layer contract between the calc (`toStatusBars` in tools.ts) and
 // the pure chart (commit 7): both import it from here. The transform runs in
 // the shell (App.tsx), never inside the chart, so the chart stays presentational.
@@ -87,6 +92,8 @@ export type AggregateTokenUsageArgs = FunctionArgs<
 export type ListRecentArgs = FunctionArgs<typeof api.invocations.listRecent>; // -> { limit?: number; after?: number }
 
 export type ListConversationsArgs = FunctionArgs<typeof api.groups.getAll>; // -> {} (no args)
+
+export type ListByChatJidArgs = FunctionArgs<typeof api.messages.listByChatJid>; // -> { chatJid: string; limit?: number }
 
 // The tool advertises a superset of the Convex args: `status` is an LLM-facing
 // filter with no backend equivalent (listRecent has no status arg), applied to

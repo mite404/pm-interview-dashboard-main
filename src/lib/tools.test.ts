@@ -5,6 +5,7 @@ import {
   toConversations,
   toStatusBars,
   validateAggregateStats,
+  validateListByChatJid,
   validateListConversations,
   validateListRecent,
   validateTokenUsage,
@@ -115,6 +116,36 @@ describe("validateListConversations (listConversations args)", () => {
 
   it("throws on any argument, since the tool takes none", () => {
     expect(() => validateListConversations({ jid: "maya@web" })).toThrow(/jid/);
+  });
+});
+
+describe("validateListByChatJid (listByChatJid args)", () => {
+  it("accepts a non-empty chatJid alone", () => {
+    expect(validateListByChatJid({ chatJid: "maya@web" })).toEqual({
+      chatJid: "maya@web",
+    });
+  });
+
+  it("passes an optional limit through", () => {
+    expect(validateListByChatJid({ chatJid: "maya@web", limit: 20 })).toEqual({
+      chatJid: "maya@web",
+      limit: 20,
+    });
+  });
+
+  it("throws when chatJid is missing", () => {
+    expect(() => validateListByChatJid({})).toThrow(/chatJid/);
+  });
+
+  it("throws when chatJid is empty or whitespace", () => {
+    expect(() => validateListByChatJid({ chatJid: "" })).toThrow(/chatJid/);
+    expect(() => validateListByChatJid({ chatJid: "   " })).toThrow(/chatJid/);
+  });
+
+  it("throws on an unknown key, naming it so the LLM can self-correct", () => {
+    expect(() =>
+      validateListByChatJid({ chatJid: "maya@web", days: 7 }),
+    ).toThrow(/days/);
   });
 });
 
