@@ -7,6 +7,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -26,7 +27,7 @@ export function StatusBreakdownChart({
   avgDuration,
 }: StatusBreakdownChartProps) {
   return (
-    <div>
+    <div data-testid="status-breakdown-chart">
       <div>
         <span>{`Total runs: ${String(total)}`}</span>{" "}
         <span>{`Avg duration: ${String(Math.round(avgDuration))} ms`}</span>
@@ -37,7 +38,9 @@ export function StatusBreakdownChart({
           <XAxis dataKey="status" />
           <YAxis allowDecimals={false} />
           <Tooltip />
-          <Bar dataKey="count" fill="#4f46e5" />
+          <Bar dataKey="count" fill="#4f46e5">
+            <LabelList dataKey="count" position="top" />
+          </Bar>
         </BarChart>
       </ResponsiveContainer>
     </div>

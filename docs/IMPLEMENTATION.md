@@ -4,6 +4,23 @@ One entry per commit, newest on top. Rationale: `docs/PLAN.md`.
 
 ---
 
+## Commit 9 - Playwright E2E: the thread, in a real browser (T5)
+
+`e2e/steel-thread.spec.ts`: one end-to-end journey that turns the manual live checks into a repeatable regression guard. Playwright installed just-in-time.
+
+- Drives real Chromium against the Vite dev server: types a question, clicks Send, asserts on the rendered DOM.
+- Boundary split: **OpenRouter mocked** at the network layer (both turns - a tool_call, then streamed SSE), because the LLM is non-deterministic and costs tokens; **Convex stays real**, which is what proves the typed-api wire end to end.
+- Asserts the three headline Musts: the tool pill shows the tool executing (#6), the streamed answer appears (#5), and the chart renders real Convex data (#4) - three distinct DOM elements: the KPI `Total runs: 39` (span), the `succeeded` axis label (Recharts), and the failed bar's **rendered value** `7` (a `LabelList` data label added to the chart for exactly this). `7` is the value `toStatusBars` derives (`finishedCount - succeeded`) and is chosen over `24` because it can't collide with a y-axis tick or the avg KPI. All from the live backend, not the mock prose (which is deliberately number-free).
+- Each assertion was verified to fail on a wrong value (e.g. `39 -> 40`, `7 -> 77`) then pass again - the E2E equivalent of red-green, so a passing run isn't a false positive.
+- This is where the actual Recharts SVG renders for real (jsdom couldn't), closing the gap the component render test had to mock around.
+- The `"Running…"` pill is transient, so the Convex call is delayed ~700ms (still real, via `route.continue()`) to make the assertion deterministic.
+
+Gate: `bun run test:e2e` 1 passed; `bun run test` 24/24; `bun run lint` 0 errors; `bun run build` ok.
+
+**Phase 1 complete.** The steel thread proves every integration seam once: admin types -> OpenRouter tool decision -> validated args -> real Convex query -> result fed back -> streamed answer -> rendered chart. Testing pyramid: unit (calcs/parsers) -> integration (loop with fakes) -> component render (chart/ErrorBoundary in jsdom) -> E2E (real browser).
+
+---
+
 ## Commit 8 - The app shell: wire the thread end to end (T4)
 
 `src/App.tsx`: the composition root. Input -> `runTurn` -> streamed text + tool-status pill + rendered chart. The thread now runs top to bottom.
