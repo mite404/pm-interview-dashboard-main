@@ -15,6 +15,7 @@ import type { LoopDeps } from "./lib/loop";
 import { decideTool, streamAnswer } from "./lib/openrouter";
 import type { WireMessage } from "./lib/openrouter";
 import { buildSystemPrompt } from "./lib/prompt";
+import { assembleContext } from "./lib/context";
 import { toAgentRunRows } from "./lib/agentRuns";
 import { toDailyUsersLineData } from "./lib/dailyUsersLineChart";
 import { toTaskRows } from "./lib/taskDefs";
@@ -70,11 +71,13 @@ const deps: LoopDeps = {
   tools: toOpenRouterTools(registry),
 };
 
-// ── pure helpers ─────────────────────────────────────────────────────────
-function toWireMessage(message: ChatMessage): WireMessage {
-  return { role: message.role, content: message.text };
-}
+// The per-turn context budget (approx tokens). The chat history is windowed to
+// this ceiling before each turn so token cost stays flat on long sessions instead
+// of growing with every message (see assembleContext / DESIGN.md "Memory").
+// ponytail: generous fixed budget; make it model-aware if we support several.
+const CONTEXT_BUDGET_TOKENS = 6000;
 
+// ── pure helpers ─────────────────────────────────────────────────────────
 function newId(): string {
   return crypto.randomUUID();
 }
@@ -137,6 +140,10 @@ function ToolResultChart({ result }: { result: ToolResult }) {
       return <CostBreakdown rows={result.data} />;
     case "dailyUniqueUsers":
       return <DailyUsersLineChart data={toDailyUsersLineData(result.data)} />;
+    default: {
+      const _exhaustive: never = result;
+      return _exhaustive;
+    }
   }
 }
 
@@ -286,10 +293,11 @@ export default function App() {
 
     // The wire array (system + prose history) is rebuilt each turn and kept
     // distinct from the on-screen list; the loop appends the tool exchange to
-    // its own copy internally.
+    // its own copy internally. assembleContext windows the history to a token
+    // budget (newest-first) so long sessions don't send an ever-growing payload.
     const wire: WireMessage[] = [
       { role: "system", content: buildSystemPrompt({ now: new Date() }) },
-      ...history.map(toWireMessage),
+      ...assembleContext(history, CONTEXT_BUDGET_TOKENS),
     ];
 
     try {
