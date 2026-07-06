@@ -38,8 +38,8 @@ export const getReplyLineage = query({
     maxChars: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const maxMessages = args.maxMessages ?? 8;
-    const maxChars = args.maxChars ?? 4000;
+    const maxMessages = args.maxMessages ?? 8;                // hop at most 8 parents
+    const maxChars = args.maxChars ?? 4000;                   // cap total characters
     const lineage: Array<{
       msgId?: string;
       content: string;
@@ -47,34 +47,34 @@ export const getReplyLineage = query({
       timestamp: number;
     }> = [];
 
-    let currentMsgId: string | undefined = args.replyToMsgId;
+    let currentMsgId: string | undefined = args.replyToMsgId; // start at the parent we're replying to
     let totalChars = 0;
 
     for (let i = 0; i < maxMessages && currentMsgId; i += 1) {
       const msg = await ctx.db
         .query("messages")
-        .withIndex("by_msgId_and_chatJid", (q) =>
+        .withIndex("by_msgId_and_chatJid", (q) =>            // the point read: exact (msgId, chatJid) lookup
           q.eq("msgId", currentMsgId!).eq("chatJid", args.chatJid),
         )
         .first();
 
-      if (!msg) break;
+      if (!msg) break;                                      // dangling pointer -> stop
 
       const content =
-        totalChars + msg.content.length > maxChars
-          ? msg.content.slice(0, Math.max(0, maxChars - totalChars))
-          : msg.content;
+        totalChars + msg.content.length > maxChars          // would this message overflow the char budget?
+          ? msg.content.slice(0, Math.max(0, maxChars - totalChars))  // yes -> keep only what fits
+          : msg.content;                                    // no  -> keep it whole
 
       lineage.unshift({
         msgId: msg.msgId,
         content,
-        role: msg.isFromMe ? "assistant" : "user",
+        role: msg.isFromMe ? "assistant" : "user",         // "me" = Monty = assistant
         timestamp: msg.timestamp,
       });
 
       totalChars += content.length;
-      if (totalChars >= maxChars) break;
-      currentMsgId = msg.replyToMsgId;
+      if (totalChars >= maxChars) break;                  // char budget exhausted -> stop
+      currentMsgId = msg.replyToMsgId;                    // hop to the parent; undefined at a thread root ends the loop
     }
 
     return lineage;

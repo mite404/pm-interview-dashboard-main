@@ -116,6 +116,38 @@ enforces, not a convention to remember.
 The three render paths: charts -> Recharts components; tables/cards -> typed React components;
 assistant text -> `react-markdown`. Recharts is the shadcn preferred lib.
 
+## Memory - context window management
+
+The controlling idea: for a product used primarily over SMS/iMessage/WhatsApp on a phone, memory is a server-side retrieval problem, not a UI problem.
+The phone is a dumb terminal that shows a message stream; the Convex `messages` table is the source of truth.
+That inversion answers the hard sub-questions directly.
+
+Thread identity needs no GUI.
+The thread key is `chatJid`, derived from the sender's messaging identity (their number / WhatsApp jid), so one person on one channel (`laneKey`) is one conversation.
+Whoever texts from whatever number IS the thread selection; attachment happens at ingestion, never by the user picking a conversation.
+
+Deleted-on-device messages survive, because context is rebuilt from the server table, not the phone's local store.
+If deletion must propagate for privacy, that is a deliberate tombstone policy, not an accident.
+
+We never load all history.
+We assemble the smallest context that answers the turn, under a token budget, from tiers:
+
+- Tier 1 - recency window: the newest N messages by timestamp (`listByChatJid`). The cheap default.
+- Tier 2 - reply lineage: walk `replyToMsgId` via `getReplyLineage` when a message inline-replies to an older one.
+- Tier 3 - summary backfill: feed `messages.classification.summary` / `.topics` (already pre-computed per message) for older-but-relevant context, so cost grows sub-linearly with conversation length.
+- Tier 4 - tool-result compaction: stub bulky rendered tool payloads with `compactToolResults` so the agent's own calls don't eat the budget.
+
+What is built here versus designed.
+The admin dashboard implements Tier 1 as `assembleContext` (src/lib/context.ts), wired in `App.tsx`: the chat history is windowed to a token budget (newest-first) before each turn, so a long session sends a flat payload instead of an ever-growing one.
+Tiers 2-3 are product-side: they read the end-user message store, not the admin's own chat, which carries no pre-computed summaries to fall back to.
+
+`compactToolResults` (src/lib/compact.ts) is the Tier-4 primitive, intentionally not wired into the within-turn loop.
+Within a single turn every tool result is still load-bearing: a resolver result (`listConversations` -> a jid) feeds the next tool call, and the final answer synthesizes from the raw results, so stubbing either would break the turn.
+It becomes useful only when tool exchanges persist across turns (the upgrade path), where prior-turn results are genuinely stale.
+
+Deliberately out of scope: a vector store / semantic retrieval.
+For a per-conversation assistant, relevant context is recency + reply-lineage + topic summaries; semantic search is the upgrade path if cross-conversation recall is ever needed.
+
 ## Engineering practice
 
 ### Dependency Injection / Composition Root
