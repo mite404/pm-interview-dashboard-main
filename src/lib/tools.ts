@@ -98,10 +98,14 @@ function optionalString(
 }
 
 // ── getAggregateStats: overall agent-run health (the Phase 1 tool) ───────
+const AGGREGATE_STATS_KEYS = [
+  "after",
+  "groupFolder",
+] as const satisfies readonly (keyof AggregateStatsArgs)[];
 
 export function validateAggregateStats(raw: unknown): AggregateStatsArgs {
   const record = asArgsRecord(raw, "getAggregateStats");
-  assertKnownKeys(record, ["after", "groupFolder"], "getAggregateStats");
+  assertKnownKeys(record, [...AGGREGATE_STATS_KEYS], "getAggregateStats");
   const args: AggregateStatsArgs = {};
   const after = optionalNumber(record.after, "after", "getAggregateStats");
   if (after !== undefined) args.after = after;
