@@ -164,11 +164,15 @@ not "zero errors".
 - **`z.strictObject` versus `z.object`.** `z.object()` deletes unknown keys and
   returns success. The whole point of `assertKnownKeys` is that an unknown key
   must throw, because it is how the model finds out it hallucinated a parameter.
-  Getting this wrong silently disables the feature the brief grades. Taught in
-  Phase 1.
+  Getting this wrong silently disables the feature the brief grades. Nothing at
+  the type level can catch that mistake, because the two constructors infer the
+  same TypeScript type. The bind you build in Phase 1 is blind to it, and a
+  runtime unknown-key test is the only thing that enforces it. Taught in Phase 1.
 - **`z.toJSONSchema`.** Zod 4 can print a schema as the JSON Schema object
   OpenRouter's `tools` parameter expects, which is what makes copy 1 derivable
-  rather than hand-written. Taught in Phase 2.
+  rather than hand-written. Its `io` option decides whether it describes the
+  parser's input or its output, and `parameters` needs the input. Taught in
+  Phase 2.
 - **A compile-time equality assertion.** A type-level check that fails the build
   when the Zod schema and the Convex-derived args disagree. This is the piece
   that turns "someone was careful" into "the compiler refuses". Taught in Phase 1.
@@ -403,6 +407,14 @@ const _aggregateStatsBound: Bound<
 to `lane` changes the key set, and changing `number` to `string` changes the
 property type. `keyof` alone catches only the first.
 
+**What it still cannot catch, and never will.** Swap `z.strictObject` for
+`z.object` above and the bind stays green, because `z.infer` produces the same
+type for both. Strictness is a property of the parser, not of the type it
+describes. That leaves the guarantee at `docs/PLAN.md:78` resting on one thing,
+a runtime test that feeds in an unknown key and asserts a throw. Phase 4 writes
+one per tool and Phase 5 sweeps for stragglers. Until then, `tsc` passing is not
+evidence about this.
+
 **Why split it this way?** `Bound<>` is its own named type rather than an inline
 expression because it is about to be repeated twelve times. Naming it means the
 error message says `Bound`, and it means a future improvement to the check lands
@@ -506,7 +518,7 @@ import { z } from 'zod';
 const S = z.strictObject({
   after: z.number().describe('Optional unix-ms lower bound...').optional(),
 });
-console.log(JSON.stringify(z.toJSONSchema(S), null, 2));
+console.log(JSON.stringify(z.toJSONSchema(S, { io: 'input' }), null, 2));
 "
 ```
 
@@ -515,6 +527,28 @@ through onto each property, and `additionalProperties: false`. That last one is
 the JSON-Schema half of `strictObject`, and it is what tells the model not to
 invent parameters in the first place. Phase 1 made a bad call _throw_. This makes
 the model less likely to make it.
+
+**About that `io: 'input'`.** It is not the default, and for this schema it
+changes nothing. That is why it is worth explaining now rather than debugging in
+Phase 4. Zod emits a different document depending on which side of the parser you
+ask about, and the two diverge as soon as a schema does any work between its
+input and its output. Verified on Zod 4.4.3:
+
+```
+z.strictObject({ after: z.number().default(0) })
+  output → { properties: { after: {...} }, required: ["after"], ... }
+  input  → { properties: { after: {...} }, ... }
+```
+
+`parameters` is the model's instruction sheet for what to **send**, so it wants
+the input side. Output mode would tell the model that `after` is mandatory, when
+the entire reason the default exists is that it is optional. Phase 4 adds that
+default to `getAggregateTokenUsage`.
+
+A second effect, which does not change the code. In `output` mode `z.object` and
+`z.strictObject` emit identical JSON, both carrying `additionalProperties: false`.
+Only `input` mode distinguishes them. So the emitted document is evidence of your
+Phase 1 constructor choice only in the mode you just picked for unrelated reasons.
 
 **Why this approach?** The alternative is to keep the literal and add a test that
 compares it to the generated version. That is more code and it can only tell you
@@ -543,10 +577,13 @@ and `npm run probe:backend` still prints `12 tools checked`.
 // CATEGORY: Calculation - schema in, JSON Schema document out. Pure.
 
 export function toParameters(schema: z.ZodType): Record<string, unknown> {
-  const { $schema: _discard, ...rest } = z.toJSONSchema(schema) as Record<
-    string,
-    unknown
-  >; // → Record<string, unknown>
+  // `io: "input"` is deliberate and not the default. `parameters` describes what
+  // the model SENDS, which is the parser's input side. Default "output" mode
+  // emits a `.default(0)` field as `required`, which would tell the model that
+  // getAggregateTokenUsage's `after` is mandatory once Phase 4 adds it.
+  const { $schema: _discard, ...rest } = z.toJSONSchema(schema, {
+    io: "input",
+  }) as Record<string, unknown>; // → Record<string, unknown>
   return rest; // → { type, properties, additionalProperties }
 }
 ```
@@ -1278,6 +1315,11 @@ const _bound: Bound<z.infer<typeof schema>, Args> = true;
 // Reject unknown keys, don't drop them
 z.strictObject({ ... });          // throws
 z.object({ ... });                // silently strips
+// ...and no bind can tell them apart: z.infer<> is identical. Test it at runtime.
+
+// Publish the INPUT side, not the output
+z.toJSONSchema(schema, { io: "input" });   // .default() field stays optional
+z.toJSONSchema(schema);                    // io: "output" -> emits it as required
 
 // Order is semantic
 z.string().trim().min(1);         // "   " throws
