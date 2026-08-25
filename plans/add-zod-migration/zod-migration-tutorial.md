@@ -56,7 +56,7 @@ Every tool in this repo declares its argument shape three times.
 Take `getAggregateStats`. The shape `{ after?: number, groupFolder?: string }`
 appears at:
 
-1. `src/lib/tools.ts:145-157`, as a JSON Schema object the language model reads
+1. `src/lib/tools.ts:148-163`, as a JSON Schema object the language model reads
 2. `src/lib/tools.ts:104`, as the string array `["after", "groupFolder"]` passed to `assertKnownKeys`
 3. `src/lib/types.ts:122`, as `AggregateStatsArgs`
 
@@ -103,7 +103,7 @@ export function validateAggregateStats(raw: unknown): AggregateStatsArgs {
 Fifteen lines to check two optional fields. The same fifteen-line shape repeats,
 with different field names, nine more times.
 
-The block the model reads, `src/lib/tools.ts:143-158`:
+The block the model reads, `src/lib/tools.ts:148-163`:
 
 ```ts
   parameters: {
@@ -190,15 +190,15 @@ not "zero errors".
 Build order is leaf to trunk: schemas before the validators that use them, before
 the registry that holds them, before the tests that pin them.
 
-| Path                     | Role                 | What it holds                                                                     | You                   |
-| ------------------------ | -------------------- | --------------------------------------------------------------------------------- | --------------------- |
-| `package.json`           | Main                 | Zod is present transitively via `convex`; this promotes it to a direct dependency | **Build**             |
-| `src/lib/types.ts`       | Data                 | `RegisteredTool`, and the `FunctionArgs<>` arg types the schemas bind to          | **Build**             |
-| `src/lib/toolSchemas.ts` | Data                 | New file. One Zod schema per tool, plus the compile-time binds                    | **Build**             |
-| `src/lib/tools.ts`       | Calculation + Action | The `validate*` functions, the `parameters` blocks, the registry                  | **Build**             |
-| `src/lib/tools.test.ts`  | Calculation          | 279 lines already asserting the behaviour you must preserve                       | **Read**, then extend |
-| `src/lib/loop.ts`        | Orchestration        | Reads `error.message` at line 123 and feeds it to the model                       | **Read only**         |
-| `convex/`                | given                | The brief's backend slice, 6 pre-existing type errors                             | **Do not touch**      |
+| Path                     | Role                 | What it holds                                                                                                          | You                   |
+| ------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `package.json`           | Main                 | Zod is present only via the `eslint-plugin-react-hooks` devDependency; this promotes it to a direct runtime dependency | **Build**             |
+| `src/lib/types.ts`       | Data                 | `RegisteredTool`, and the `FunctionArgs<>` arg types the schemas bind to                                               | **Build**             |
+| `src/lib/toolSchemas.ts` | Data                 | New file. One Zod schema per tool, plus the compile-time binds                                                         | **Build**             |
+| `src/lib/tools.ts`       | Calculation + Action | The `validate*` functions, the `parameters` blocks, the registry                                                       | **Build**             |
+| `src/lib/tools.test.ts`  | Calculation          | 279 lines already asserting the behaviour you must preserve                                                            | **Read**, then extend |
+| `src/lib/loop.ts`        | Orchestration        | Reads `error.message` at line 123 and feeds it to the model                                                            | **Read only**         |
+| `convex/`                | given                | The brief's backend slice, 6 pre-existing type errors                                                                  | **Do not touch**      |
 
 ---
 
@@ -318,7 +318,9 @@ import type { AggregateStatsArgs } from "./types"; // → { after?: number; grou
 //   - An unknown key must THROW, not be dropped. Zod has two object
 //     constructors and only one of them does that. Which default would let a
 //     hallucinated `lane` through silently?
-//   - Carry the description strings over from tools.ts:145-157 verbatim.
+//   - Carry the two per-field description strings over verbatim: tools.ts:153-155
+//     onto `after`, tools.ts:159 onto `groupFolder`. NOT the tool-level
+//     `description` at tools.ts:143-147.
 //     Zod has a method for attaching human-readable text to a field; you will
 //     need it in Phase 2 and it costs nothing to add now.
 export const aggregateStatsSchema = z.strictObject({}); // → ZodObject, remove when implemented
@@ -497,7 +499,7 @@ Then in `src/lib/tools.ts`:
 export const getAggregateStatsTool: RegisteredTool = {
   name: "getAggregateStats",
   description: "...",                                     // → string, unchanged
-  // TODO(you): replace the 16-line literal at tools.ts:143-158 with a call.
+  // TODO(you): replace the 16-line literal at tools.ts:148-163 with a call.
   parameters: { type: "object", properties: {} },         // remove when implemented
   execute: (rawArgs, deps) => /* unchanged for now */,
 };
@@ -1180,7 +1182,7 @@ Report back rather than improvising if any of these happen.
 - **Deliberately deferred:** improving any `description` string. They move verbatim so the diff stays reviewable. Wording changes are a separate ticket, and they are the one thing here that actually changes model behaviour.
 - **Deliberately deferred:** the 6 `convex/` type errors.
 - **A reviewer should double-check** two things specifically. First, that `Bound<>` uses `Required<>` or a `keyof` comparison, because the naive version type-checks and does nothing. Second, that every thrown message still begins with the tool name, since no existing test asserts it and it is the property most likely to be lost.
-- **Zod becomes a direct dependency.** It is currently present transitively via `convex` at 4.4.3. Pinning it in `dependencies` means a future `convex` upgrade cannot silently move your validation library.
+- **Zod becomes a direct dependency.** Not tidy-up. Verified 2026-08-24: `zod@4.4.3` is in neither `dependencies` nor `devDependencies`, and `npm ls zod` traces it to `eslint-plugin-react-hooks@^7.1.1`, a devDependency. `convex@1.42.0` does not depend on zod at all. `toolSchemas.ts` is runtime code that ships in the Vite bundle, so an `npm ci --omit=dev` build drops the only provider of its import and fails to resolve it. Install it pinned (`npm install zod@4.4.3`) so the copy you add is the copy the lint plugin already resolves.
 
 ---
 

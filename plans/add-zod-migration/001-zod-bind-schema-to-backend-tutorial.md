@@ -38,7 +38,9 @@ that schema ever stops matching `AggregateStatsArgs`.
 you have never seen fail is not a check.
 
 **Prerequisites:** You can read a TypeScript conditional type. You do not need to
-have used Zod. Zod 4.4.3 is already installed transitively via `convex`.
+have used Zod. Zod 4.4.3 already resolves from `node_modules`, but read the
+`package.json` section below before you rely on that: it is there for a reason
+that makes the promotion step mandatory rather than tidy-up.
 
 **Estimated time:** ~1h. The file is about twenty lines. The hour is Step 1.3.
 
@@ -61,7 +63,7 @@ have used Zod. Zod 4.4.3 is already installed transitively via `convex`.
 `getAggregateStats` declares the shape `{ after?: number, groupFolder?: string }`
 in three places:
 
-1. `src/lib/tools.ts:145-157` — a JSON Schema object literal, which is what the language model reads
+1. `src/lib/tools.ts:148-163` — a JSON Schema object literal, which is what the language model reads
 2. `src/lib/tools.ts:102-106` — the `AGGREGATE_STATS_KEYS` array passed to `assertKnownKeys`
 3. `src/lib/types.ts:122` — `AggregateStatsArgs`, via `FunctionArgs<typeof api.invocations.getAggregateStats>`
 
@@ -93,7 +95,7 @@ export type AggregateStatsArgs = FunctionArgs<
 `src/lib/tools.ts:107-121`, fifteen lines of hand-written checking for two
 optional fields, repeated with different names nine more times in the same file.
 
-`src/lib/tools.ts:143-158`, the block the model reads — a sixteen-line object
+`src/lib/tools.ts:148-163`, the block the model reads — a sixteen-line object
 literal duplicating the field names and adding description strings that exist
 nowhere else.
 
@@ -105,30 +107,70 @@ they are not yours. Your gate is "zero errors in `src/`", not "zero errors".
 
 ## Commands You'll Need
 
-| Purpose                                     | Command                                                             | Expected on success               |
-| ------------------------------------------- | ------------------------------------------------------------------- | --------------------------------- |
-| Preflight: Zod is present                   | `node -e "console.log(require('zod/package.json').version)"`        | `4.4.3` or higher                 |
-| **Your gate** — errors in `src/`            | `./node_modules/.bin/tsc -b --noEmit 2>&1 \| grep -c "^src/"`       | `0`                               |
-| Pre-existing backend errors (must not grow) | `./node_modules/.bin/tsc -b --noEmit 2>&1 \| grep -c "^convex/"`    | `6`                               |
-| Full unit suite                             | `npm test`                                                          | `Tests 141 passed (141)`          |
-| Just the tools file while iterating         | `./node_modules/.bin/vitest run src/lib/tools.test.ts`              | `44 passed` or higher             |
-| Lint                                        | `npm run lint`                                                      | `0 errors`, 21 warnings           |
-| Confirm zod is a direct dep                 | `node -e "console.log(require('./package.json').dependencies.zod)"` | a version string, not `undefined` |
+| Purpose                                                                      | Command                                                             | Expected on success                          |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------- | -------------------------------------------- |
+| Preflight: Zod resolves at all                                               | `node -e "console.log(require('zod/package.json').version)"`        | `4.4.3` or higher                            |
+| Preflight: who is providing it                                               | `npm ls zod`                                                        | `eslint-plugin-react-hooks` — see below      |
+| **Your gate** — errors in `src/`                                             | `./node_modules/.bin/tsc -b --noEmit 2>&1 \| grep -c "^src/"`       | `0`                                          |
+| Pre-existing backend errors (must not grow)                                  | `./node_modules/.bin/tsc -b --noEmit 2>&1 \| grep -c "^convex/"`    | `6`                                          |
+| Full unit suite                                                              | `npm test`                                                          | `Tests 141 passed (141)`                     |
+| Just the tools file while iterating                                          | `./node_modules/.bin/vitest run src/lib/tools.test.ts`              | `44 passed` or higher                        |
+| Lint                                                                         | `npm run lint`                                                      | `0 errors`, 21 warnings                      |
+| Confirm zod is a direct dep (**after** your `package.json` edit, not before) | `node -e "console.log(require('./package.json').dependencies.zod)"` | before: `undefined`. after: a version string |
 
 ---
 
 ## Files You'll Touch
 
-| Path                     | Role                 | What it holds                                            | You                      |
-| ------------------------ | -------------------- | -------------------------------------------------------- | ------------------------ |
-| `src/lib/toolSchemas.ts` | Data                 | **New file.** The schema and the bind                    | **Build**                |
-| `src/lib/types.ts`       | Data                 | `AggregateStatsArgs` at line 122 — the thing you bind to | **Read only**            |
-| `src/lib/tools.ts`       | Calculation + Action | Lines 143-158 hold the description strings you copy over | **Read only this phase** |
-| `package.json`           | Data                 | Promote `zod` from transitive to direct                  | **Build**                |
-| `convex/`                | given                | 6 pre-existing type errors                               | **Do not touch**         |
+| Path                     | Role                 | What it holds                                                          | You                      |
+| ------------------------ | -------------------- | ---------------------------------------------------------------------- | ------------------------ |
+| `src/lib/toolSchemas.ts` | Data                 | **New file.** The schema and the bind                                  | **Build**                |
+| `src/lib/types.ts`       | Data                 | `AggregateStatsArgs` at line 122 — the thing you bind to               | **Read only**            |
+| `src/lib/tools.ts`       | Calculation + Action | Lines 151-160 hold the two per-field description strings you copy over | **Read only this phase** |
+| `package.json`           | Data                 | Promote `zod` from devDependency-only to a direct runtime dep          | **Build**                |
+| `convex/`                | given                | 6 pre-existing type errors                                             | **Do not touch**         |
 
 `tools.ts` is read-only _this phase_. That is what keeps the first commit
 reviewable: the schema lands, nothing consumes it, and the diff is one new file.
+
+---
+
+## The `package.json` step is not bookkeeping
+
+Run this before you start:
+
+```bash
+npm ls zod
+node -e "const p=require('./package.json');
+  console.log('dependencies.zod:', p.dependencies?.zod);
+  console.log('devDependencies.zod:', p.devDependencies?.zod);"
+```
+
+Verified on 2026-08-24, this repo prints `undefined` for both, and `npm ls zod`
+traces the installed `zod@4.4.3` to `eslint-plugin-react-hooks@^7.1.1`, which is
+a **devDependency**. `convex@1.42.0` does not depend on zod at all: its
+`dependencies` are `esbuild`, `prettier` and `ws`.
+
+So `undefined` is the correct answer today, not a broken environment. Do not go
+looking for a failed install.
+
+The consequence is the point. `src/lib/toolSchemas.ts` is runtime code that ships
+in the Vite bundle, and the only thing currently putting zod in `node_modules` is
+a lint plugin. Any production install (`npm ci --omit=dev`, most Docker builds,
+most CI deploy jobs) drops that plugin, takes the hoisted zod with it, and the
+build fails to resolve the import. Nothing in this repo's gate would catch it,
+because `npm test`, `tsc` and `npm run lint` all run with devDependencies present.
+
+Pin the version rather than taking whatever is newest, so the copy you add stays
+the copy the lint plugin is already resolving:
+
+```bash
+npm install zod@4.4.3
+```
+
+`npm install zod` happens to give you 4.4.3 today, because that is the current
+`latest`. That is luck, not a mechanism, and it stops being true on the next
+release.
 
 ---
 
@@ -139,7 +181,7 @@ reviewable: the schema lands, nothing consumes it, and the diff is one new file.
 **Out of scope:**
 
 - **`src/lib/tools.ts` behaviour.** The schema is not wired to anything yet. That is ETH-43 and ETH-44.
-- **The tool `description` strings.** They move into the schema verbatim. Rewording them is a separate ticket and would make this diff unreviewable.
+- **The tool-level `description`** at `tools.ts:143-147`, the one on the registry entry. It stays in `tools.ts`. Only the two per-field descriptions inside `parameters.properties` move into the schema, and they move verbatim. Rewording either is a separate ticket.
 - **`convex/`.** See above.
 - **The other eleven tools.** One tool, deliberately. If the pattern is wrong you want to find out once, not twelve times.
 
@@ -201,7 +243,9 @@ import type { AggregateStatsArgs } from "./types"; // → { after?: number; grou
 //     constructors and only one of them does that by default. Which default
 //     would let a hallucinated `lane` key through without complaint? Read
 //     `docs/PLAN.md:78` for why that matters here specifically.
-//   - Carry the two description strings over from tools.ts:145-157 VERBATIM.
+//   - Carry the two per-field description strings over VERBATIM: tools.ts:153-155
+//     belongs on `after`, tools.ts:159 belongs on `groupFolder`. NOT the
+//     tool-level `description` at tools.ts:143-147, which stays in tools.ts.
 //     Zod has a method for attaching human-readable text to a field. You will
 //     need it in ETH-43 and it costs nothing to add now.
 export const aggregateStatsSchema = /* TODO(you) */ null as never;
@@ -342,7 +386,7 @@ Answer these in writing before you look at anything.
 - **Chaining order:** `.describe()` returns the same schema type, so it can go before or after `.optional()`. Put `.optional()` last and read the inferred type in your editor to confirm.
 - **Step 1.4, the stronger route:** `keyof` alone compares _names_. To catch a type change you need to compare the _properties_, which means removing optionality rather than sidestepping it. TypeScript's built-in is `Required<T>`.
 - **Q3:** naked type parameters in a conditional type distribute over unions. Wrapping both sides in a one-element tuple turns off distribution, so you compare the union as a whole rather than member by member.
-- **package.json:** `npm install zod` will pick up the version already in the lockfile. Confirm with the last row of the Commands table.
+- **package.json:** `npm install zod@4.4.3`, pinned. See "The `package.json` step is not bookkeeping" above for why the version is spelled out and why `undefined` before the edit is expected.
 
 </details>
 
@@ -365,7 +409,7 @@ protect against_.
 
 - `src/lib/toolSchemas.ts` exists and typechecks.
 - You have personally watched the bind fail on a renamed key **and** on a changed type.
-- `zod` is in `dependencies`, not only the lockfile.
+- `zod` is in `dependencies` at `4.4.3`, not only hoisted out of a devDependency.
 - Nothing imports the new file. Runtime behaviour is untouched.
 
 ---
@@ -385,7 +429,7 @@ protect against_.
 - `src/lib/toolSchemas.ts` exists and typechecks.
 - Deliberately breaking the schema — by name **or** by type — fails the typecheck.
 - `zod` is a direct dependency.
-- The description strings in the schema are byte-identical to `tools.ts:145-157`.
+- The two description strings in the schema are byte-identical to `tools.ts:153-155` and `tools.ts:159`.
 - `git diff --stat` shows two files changed and no change under `src/lib/tools.ts`.
 
 ---
@@ -427,7 +471,10 @@ protect against_.
 **Solution:** Those 6 are pre-existing. Your gate greps `^src/` for exactly this reason.
 
 **Problem:** Editor says `Cannot find module 'zod'`.
-**Solution:** It is installed transitively, which resolves at runtime but may not be picked up by your editor's TS server until it is a direct dependency. Do the `package.json` step, then restart the TS server.
+**Solution:** It resolves from `node_modules` (hoisted out of `eslint-plugin-react-hooks`) but is in no `package.json` dependency list, so your editor's TS server may not offer it. Do the `package.json` step, then restart the TS server.
+
+**Problem:** `node -e "console.log(require('./package.json').dependencies.zod)"` prints `undefined`.
+**Solution:** Expected, if you have not done the `package.json` step yet. That row of the Commands table is a post-step check, not a preflight. See "The `package.json` step is not bookkeeping".
 
 ### Key takeaways
 

@@ -79,7 +79,7 @@ whole trade this phase makes.
 
 ## Current state
 
-`src/lib/tools.ts:143-158` — the literal, verbatim, is the thing you are deleting:
+`src/lib/tools.ts:148-163` — the literal, verbatim, is the thing you are deleting:
 
 ```ts
   parameters: {
@@ -208,7 +208,7 @@ ETH-46. Pick something that does not force a cast at every call site.
 ### Step 2.2: Look before you write
 
 **Do this before implementing.** Print what Zod actually emits and diff it, by
-eye, against the literal at `tools.ts:143-158`:
+eye, against the literal at `tools.ts:148-163`:
 
 ```bash
 cd /Users/ea/Programming/web/fractal/pm-interview-dashboard-main
