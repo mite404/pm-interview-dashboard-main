@@ -13,7 +13,7 @@ _For the executor: this is the hands-on sheet for `002-zod-generate-model-parame
 The plan file says what to build. This says what to try and how to know you got
 it right._
 
-> **Blocked until ETH-42 lands.** This phase imports `aggregateStatsSchema` from
+> **Blocked until ETH-42 lands.** This phase imports `getAggregateStatsSchema` from
 > `src/lib/toolSchemas.ts`, which ETH-42 creates. If that file does not exist
 > yet, stop and do `001-zod-bind-schema-to-backend-tutorial.md` first.
 
@@ -101,7 +101,7 @@ whole trade this phase makes.
 ```
 
 Every field name and every description string in there already exists in
-`aggregateStatsSchema` after ETH-42 — you carried them over verbatim, which is
+`getAggregateStatsSchema` after ETH-42 — you carried them over verbatim, which is
 why ETH-42 insisted on `.describe()`.
 
 ---
@@ -202,7 +202,7 @@ export function toParameters(schema: /* TODO(you): what type? */): Record<string
 ```
 
 The parameter type is a real question, not a formality. It has to accept
-`aggregateStatsSchema` today and eleven more schemas of different shapes in
+`getAggregateStatsSchema` today and eleven more schemas of different shapes in
 ETH-46. Pick something that does not force a cast at every call site.
 
 ### Step 2.2: Look before you write
@@ -214,8 +214,8 @@ eye, against the literal at `tools.ts:148-163`:
 cd /Users/ea/Programming/web/fractal/pm-interview-dashboard-main
 npx tsx -e "
 import { z } from 'zod';
-import { aggregateStatsSchema } from './src/lib/toolSchemas';
-console.log(JSON.stringify(z.toJSONSchema(aggregateStatsSchema), null, 2));
+import { getAggregateStatsSchema } from './src/lib/toolSchemas';
+console.log(JSON.stringify(z.toJSONSchema(getAggregateStatsSchema), null, 2));
 "
 ```
 
@@ -416,5 +416,3 @@ suite stays green through that, because nothing asserts on `parameters`.
 2. A conformance test and a deletion solve different problems; the deletion is stronger when you are allowed to take it.
 3. When the only consumer is external, "the tests pass" is not evidence about correctness — name what is.
 4. Never mutate an object you were handed by a library whose caching you have not read.
-
-**End of Tutorial**

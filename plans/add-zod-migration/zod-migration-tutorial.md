@@ -323,11 +323,11 @@ import type { AggregateStatsArgs } from "./types"; // → { after?: number; grou
 //     `description` at tools.ts:143-147.
 //     Zod has a method for attaching human-readable text to a field; you will
 //     need it in Phase 2 and it costs nothing to add now.
-export const aggregateStatsSchema = z.strictObject({}); // → ZodObject, remove when implemented
+export const getAggregateStatsSchema = z.strictObject({}); // → ZodObject, remove when implemented
 
 // TODO(you): write the bind.
 //
-// Goal: `tsc` errors if aggregateStatsSchema stops matching AggregateStatsArgs.
+// Goal: `tsc` errors if getAggregateStatsSchema stops matching AggregateStatsArgs.
 //
 // Start with the shape below, then read Step 1.2 before you trust it.
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
@@ -379,7 +379,7 @@ greater than `0`. Then delete the drifted schema and it prints `0`.
 import { z } from "zod"; // → module
 import type { AggregateStatsArgs } from "./types"; // → { after?: number; groupFolder?: string }
 
-export const aggregateStatsSchema = z.strictObject({
+export const getAggregateStatsSchema = z.strictObject({
   // → ZodObject
   after: z
     .number()
@@ -400,7 +400,7 @@ type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
 type Bound<S, Args> = Exact<Required<S>, Required<Args>>; // → true | never
 
 const _aggregateStatsBound: Bound<
-  z.infer<typeof aggregateStatsSchema>,
+  z.infer<typeof getAggregateStatsSchema>,
   AggregateStatsArgs
 > = true; // → true
 ```
@@ -435,7 +435,7 @@ cd /Users/ea/Programming/web/fractal/pm-interview-dashboard-main
 **If it fails:** read the error. `Type 'true' is not assignable to type 'never'`
 on the `_aggregateStatsBound` line means the schema really does disagree with
 the backend. Print the inferred type by hovering `z.infer<typeof
-aggregateStatsSchema>` in your editor and compare it to the comment at
+getAggregateStatsSchema>` in your editor and compare it to the comment at
 `types.ts:124`.
 
 ### ✅ Phase 1 complete
@@ -597,7 +597,7 @@ export const getAggregateStatsTool: RegisteredTool = {
   // → RegisteredTool
   name: "getAggregateStats",
   description: "Overall health of agent runs, all-time: ...",
-  parameters: toParameters(aggregateStatsSchema), // → Record<string, unknown>
+  parameters: toParameters(getAggregateStatsSchema), // → Record<string, unknown>
   execute: (rawArgs, deps) =>
     runAggregateStats(validateAggregateStats(rawArgs), deps).then((data) => ({
       tool: "getAggregateStats",
@@ -792,7 +792,7 @@ Then in `tools.ts`:
 export const validateAggregateStats = makeValidator(
   // → (unknown) => AggregateStatsArgs
   "getAggregateStats",
-  aggregateStatsSchema,
+  getAggregateStatsSchema,
 );
 ```
 
@@ -1064,7 +1064,7 @@ returns nothing, and the full suite still reports 141 tests or more.
 
 ### Step 5.3: Quiz yourself
 
-1. After this phase, what still checks that `aggregateStatsSchema` matches the real Convex function? Name the file and the mechanism.
+1. After this phase, what still checks that `getAggregateStatsSchema` matches the real Convex function? Name the file and the mechanism.
 2. Someone adds a `lane` parameter to `api.invocations.getAggregateStats` next month and does not touch `src/`. What is the first thing that fails, and at what moment?
 3. `assets/drift-check.ts` becomes redundant. Name a change to this codebase that would make it useful again.
 
@@ -1131,7 +1131,7 @@ Run in order, from `/Users/ea/Programming/web/fractal/pm-interview-dashboard-mai
 3. **Unit tests.** `npm test` prints `Test Files 24 passed (24)` and `Tests 141 passed (141)` or higher.
 4. **Lint.** `npm run lint` prints `0 errors`. Twenty-one warnings are pre-existing; more than twenty-one means you added one.
 5. **The advertised shapes still work.** `npm run probe:backend` prints `12 tools checked`.
-6. **The bind actually binds.** Break one schema on purpose: rename `groupFolder` to `lane` in `aggregateStatsSchema`. Step 1 must now print a number greater than `0`. Put it back and confirm it returns to `0`. A migration whose safety check you never saw fail is a migration with no safety check.
+6. **The bind actually binds.** Break one schema on purpose: rename `groupFolder` to `lane` in `getAggregateStatsSchema`. Step 1 must now print a number greater than `0`. Put it back and confirm it returns to `0`. A migration whose safety check you never saw fail is a migration with no safety check.
 7. **End to end.** `npm run dev` in one terminal, `npm run test:e2e` in another. All Playwright specs pass.
 8. **Teardown.** Stop the dev server. `git status` shows only the five files in Scope.
 
@@ -1145,7 +1145,7 @@ naive `Exact<>` from Phase 1.2 and it is checking nothing.
 
 **Per step:**
 
-- [ ] Phase 1: `src/lib/toolSchemas.ts` exists, and deliberately renaming a field in `aggregateStatsSchema` makes `tsc -b --noEmit 2>&1 | grep -c "^src/"` print more than `0`
+- [ ] Phase 1: `src/lib/toolSchemas.ts` exists, and deliberately renaming a field in `getAggregateStatsSchema` makes `tsc -b --noEmit 2>&1 | grep -c "^src/"` print more than `0`
 - [ ] Phase 2: `grep -c "additionalProperties" src/lib/tools.ts` prints `0`, and `npm run probe:backend` prints `12 tools checked`
 - [ ] Phase 3: a test asserting the tool name appears in a validation error exists and passes: `./node_modules/.bin/vitest run src/lib/tools.test.ts -t "names the tool"`
 - [ ] Phase 4: `./node_modules/.bin/vitest run src/lib/tools.test.ts` passes the whitespace pair at `tools.test.ts:143-146`

@@ -248,14 +248,14 @@ import type { AggregateStatsArgs } from "./types"; // → { after?: number; grou
 //     tool-level `description` at tools.ts:143-147, which stays in tools.ts.
 //     Zod has a method for attaching human-readable text to a field. You will
 //     need it in ETH-43 and it costs nothing to add now.
-export const aggregateStatsSchema = /* TODO(you) */ null as never;
+export const getAggregateStatsSchema = /* TODO(you) */ null as never;
 
 // TODO(you): write the bind.
 //
-// Goal: `tsc` errors if aggregateStatsSchema stops matching AggregateStatsArgs.
+// Goal: `tsc` errors if getAggregateStatsSchema stops matching AggregateStatsArgs.
 //
 // Start from the shape below — then go to Step 1.3 before you trust it.
-// `z.infer<typeof aggregateStatsSchema>` gives you the type the schema
+// `z.infer<typeof getAggregateStatsSchema>` gives you the type the schema
 // describes. You need to compare it against AggregateStatsArgs and produce a
 // type that is assignable from `true` when they agree and from nothing at all
 // when they do not.
@@ -271,7 +271,7 @@ Fill in the schema and write the naive bind:
 
 ```ts
 const _aggregateStatsBound: Exact<
-  z.infer<typeof aggregateStatsSchema>,
+  z.infer<typeof getAggregateStatsSchema>,
   AggregateStatsArgs
 > = true;
 ```
@@ -459,7 +459,7 @@ protect against_.
 ### Troubleshooting
 
 **Problem:** `Type 'true' is not assignable to type 'never'` on your bind line.
-**Solution:** Working as intended — the schema and the args type genuinely disagree. Hover `z.infer<typeof aggregateStatsSchema>` in your editor and diff it against the `// ->` comment on `types.ts:122`.
+**Solution:** Working as intended — the schema and the args type genuinely disagree. Hover `z.infer<typeof getAggregateStatsSchema>` in your editor and diff it against the `// ->` comment on `types.ts:122`.
 
 **Problem:** The bind compiles even with a deliberately wrong field name.
 **Solution:** You are comparing all-optional shapes directly. See Step 1.4 — you need to remove optionality before comparing.

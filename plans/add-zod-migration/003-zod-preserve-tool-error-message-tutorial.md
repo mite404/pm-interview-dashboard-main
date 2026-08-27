@@ -14,7 +14,7 @@ The plan file says what to build. This says what to try, in what order, and how 
 know you got it right._
 
 > **Blocked until ETH-42 and ETH-43 land.** This phase adds a second Calculation
-> to `src/lib/toolSchemas.ts` and consumes `aggregateStatsSchema`. Do 001 and 002
+> to `src/lib/toolSchemas.ts` and consumes `getAggregateStatsSchema`. Do 001 and 002
 > first.
 
 > **Where the answer lives.** `zod-migration-tutorial.md`, Phase 3, has a

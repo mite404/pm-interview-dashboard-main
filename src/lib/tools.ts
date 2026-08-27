@@ -9,6 +9,7 @@ import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
 import { runCostBreakdown, validateCostRollups } from "./cost";
 import type { OpenRouterTool } from "./openrouter";
+import { getAggregateStatsSchema, toParameters } from "./toolSchemas";
 import type {
   AggregateStats,
   AggregateStatsArgs,
@@ -145,22 +146,7 @@ export const getAggregateStatsTool: RegisteredTool = {
     "succeeded, how many are still active (pending/running), how many finished, " +
     "and average run duration in ms. Use for questions like 'how are our agent " +
     "runs doing?'.",
-  parameters: {
-    type: "object",
-    properties: {
-      after: {
-        type: "number",
-        description:
-          "Optional unix-ms lower bound on a run's creation time. Omit for " +
-          "all-time, which is the usual case.",
-      },
-      groupFolder: {
-        type: "string",
-        description: "Optional group folder to scope to. Omit for all groups.",
-      },
-    },
-    additionalProperties: false,
-  },
+  parameters: toParameters(getAggregateStatsSchema),
   execute: (rawArgs, deps) =>
     runAggregateStats(validateAggregateStats(rawArgs), deps).then((data) => ({
       tool: "getAggregateStats",

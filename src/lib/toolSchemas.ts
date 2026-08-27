@@ -35,3 +35,24 @@ const _aggregateStatsBound: Bound<
   typeof getAggregateStatsSchema,
   AggregateStatsArgs
 > = true;
+
+/**
+ * CATEGORY: Calculation - schema in, JSON Schema out. No side effects.
+ *
+ * Emits the JSON Schema object that OpenRouter's `tools[].function.parameters`
+ * expects, derived from the Zod schema rather than hand-written.
+ */
+export function toParameters(
+  schema: typeof getAggregateStatsSchema,
+): Record<string, unknown> {
+  const zodSchema = z.toJSONSchema(schema, { io: "input" });
+
+  const modifiedObj = {
+    ...zodSchema,
+  };
+
+  delete modifiedObj.$schema;
+
+  return modifiedObj;
+}
+// console.log(toParameters(getAggregateStatsSchema));
