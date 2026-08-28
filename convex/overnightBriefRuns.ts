@@ -26,11 +26,11 @@ export const listCostRollups = query({
 
     const rows = [];
     for (const run of runs) {
-      const group = await ctx.db.get(run.groupId);
+      const group = await ctx.db.get("registeredGroups", run.groupId);
       const groupFolder = group?.folder ?? "unknown";
       if (args.groupFolder && groupFolder !== args.groupFolder) continue;
 
-      const task = await ctx.db.get(run.taskDefId);
+      const task = await ctx.db.get("intelligenceTaskDefs", run.taskDefId);
       const taskName = task?.name ?? "(unknown task)";
 
       const invocations = await ctx.db

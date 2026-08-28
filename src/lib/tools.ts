@@ -1,9 +1,14 @@
-// The tool registry: each entry bundles the LLM-facing metadata with an
+// Tool Registry: Each entry bundles LLM-facing metadata with an
 // `execute` closure (validate -> run -> wrap into the discriminated ToolResult).
-// Per tool, built leaf to root: the pure `validate` (the graded LLM->Convex
-// boundary, unit-tested) and any transform, then the Convex `run`, then the
-// assembled RegisteredTool. Actions are dependency-injected, so the calcs stay
-// network-free and deterministic to test.
+//
+// Construction flow (leaf to root):
+// 1. Pure `validate` logic (the typed LLM -> Convex boundary, unit-tested).
+// 2. Optional data transformations.
+// 3. The Convex `run` logic.
+// 4. The final `RegisteredTool` assembly.
+//
+// Logic remains network-free and deterministic via dependency injection of the
+// Convex client, facilitating easier testing.
 
 import { api } from "../../convex/_generated/api";
 import type { Id } from "../../convex/_generated/dataModel";
@@ -39,6 +44,7 @@ import type {
   ToolDeps,
   ToolResult,
 } from "./types";
+import { z } from "zod";
 
 // The backend run-status enum, single-sourced for `validate` to check the
 // LLM-supplied filter against. Kept in step with the schema's `v.union(...)`.
@@ -49,13 +55,40 @@ const INVOCATION_STATUSES: InvocationStatus[] = [
   "failed",
 ];
 
+/**
+ * CATEGORY: Calculation (factory) - returns a Calculation.
+ *
+ * Builds a validator for one tool. The returned function takes untyped LLM JSON
+ * and returns typed args, or throws a message the MODEL will read via
+ * loop.ts:123. See the tutorial's Background section for what that message owes
+ * its reader.
+ */
+export function makeValidator<S extends z.ZodType>(
+  toolName: string,
+  schema: S,
+): (raw: unknown) => z.infer<S> {
+  return (raw: unknown) => {
+    const result = schema.safeParse(raw);
+
+    if (result.success) {
+      return result.data;
+    } else {
+      const errorPath = result.error.issues[0].path;
+      const errorMessage = result.error.issues[0].message;
+      throw new Error(
+        `${toolName}: \`${String(errorPath[0])}\` ${errorMessage}`,
+      );
+    }
+  };
+}
+
 // ── shared validate helpers (the registry-wide boundary convention) ──────
-// Untyped LLM JSON in -> typed args out, or a descriptive throw. Strict on the
-// types of known keys; throws on ANY unknown key, naming it so the loop can feed
-// the reason back and the model can self-correct.
+// Converts untyped LLM JSON into typed arguments or throws a descriptive error.
+// Strict on types of known keys; throws on any unknown keys to allow the
+// loop to report the specific error and the model to self-correct.
 
 function asArgsRecord(raw: unknown, tool: string): Record<string, unknown> {
-  if (raw === undefined || raw === null) return {};
+  if (raw === undefined || raw === null) return {}; // for zod schema validation we want: raw ?? {}
   if (typeof raw !== "object" || Array.isArray(raw)) {
     throw new Error(`${tool} args must be an object`);
   }
@@ -99,25 +132,10 @@ function optionalString(
 }
 
 // ── getAggregateStats: overall agent-run health (the Phase 1 tool) ───────
-const AGGREGATE_STATS_KEYS = [
-  "after",
-  "groupFolder",
-] as const satisfies readonly (keyof AggregateStatsArgs)[];
-
-export function validateAggregateStats(raw: unknown): AggregateStatsArgs {
-  const record = asArgsRecord(raw, "getAggregateStats");
-  assertKnownKeys(record, [...AGGREGATE_STATS_KEYS], "getAggregateStats");
-  const args: AggregateStatsArgs = {};
-  const after = optionalNumber(record.after, "after", "getAggregateStats");
-  if (after !== undefined) args.after = after;
-  const groupFolder = optionalString(
-    record.groupFolder,
-    "groupFolder",
-    "getAggregateStats",
-  );
-  if (groupFolder !== undefined) args.groupFolder = groupFolder;
-  return args;
-}
+export const validateAggregateStats = makeValidator(
+  "getAggregateStats",
+  getAggregateStatsSchema,
+);
 
 /**
  * Derives the three status bars the chart renders. The status enum is

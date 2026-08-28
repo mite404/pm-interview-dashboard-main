@@ -80,7 +80,7 @@ export const listByGroup = query({
 export const getById = query({
   args: { id: v.id("agentInvocations") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
+    return await ctx.db.get("agentInvocations", args.id);
   },
 });
 

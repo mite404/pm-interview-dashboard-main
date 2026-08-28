@@ -91,3 +91,41 @@ flowchart TD
 ```
 
 The lesson that generalizes: when a system has a non-deterministic component, draw your test boundary _around_ it - assert the deterministic wiring on both sides, and let a cheap unit test cover the rule that guides the non-deterministic part.
+
+**A union of complete shapes beats one object with optional fields.**
+`makeValidator` in `src/lib/tools.ts:66-83` calls `schema.safeParse(raw)`.
+Zod could have designed that return value as one object where every field is optional: `{ success: boolean, data?: T, error?: ZodError }`.
+Instead it returns a union of two _complete_ shapes, each fully populated for its own case.
+
+```ts
+// src/lib/tools.ts:71-81
+const result = schema.safeParse(raw);
+
+if (result.success) {
+  return result.data; // this branch: `data` is guaranteed present, no `?.`
+} else {
+  const errorMessage = result.error.issues[0].message; // this branch: `error` is guaranteed present
+  throw new Error(
+    `${toolName}: \`${String(result.error.issues[0].path[0])}\` ${errorMessage}`,
+  );
+}
+```
+
+Checking `result.success` costs one line, and it buys certainty about every other field in that branch - not because TypeScript is being clever, but because `success` is typed as the literal `true` in one half of the union and the literal `false` in the other.
+The boolean and the fields that come with it can never disagree, because they were never two separate facts to keep in sync.
+A bag of optional fields cannot offer that: checking one flag would tell TypeScript nothing about an unrelated optional property, so every read would still need its own `?.` or non-null assertion.
+
+```mermaid
+flowchart LR
+  subgraph bag["Bag of optionals - one shape"]
+    B["{ success: boolean\n  data?: T\n  error?: ZodError }"]
+    B -->|"check success"| B1["data still T | undefined"]
+  end
+  subgraph union["Discriminated union - two shapes"]
+    R["safeParse(raw)"]
+    R -->|"success: true"| S["{ success: true; data: T }"]
+    R -->|"success: false"| F["{ success: false; error: ZodError }"]
+    S -->|"data is T, no ?. needed"| OK[return result.data]
+    F -->|"error is ZodError, no ?. needed"| ERR[throw with result.error]
+  end
+```
