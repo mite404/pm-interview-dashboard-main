@@ -44,7 +44,7 @@ import type {
   ToolDeps,
   ToolResult,
 } from "./types";
-import { z } from "zod";
+import type { z } from "zod";
 
 // The backend run-status enum, single-sourced for `validate` to check the
 // LLM-supplied filter against. Kept in step with the schema's `v.union(...)`.

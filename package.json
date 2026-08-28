@@ -11,7 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "lint": "eslint .",
+    "lint": "eslint . --ignore-pattern 'convex/**' --max-warnings 0 && eslint convex",
     "lint:fix": "eslint . --fix",
     "probe:backend": "bun run scripts/probe-tools.ts",
     "format": "prettier --write .",
