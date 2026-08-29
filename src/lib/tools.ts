@@ -68,16 +68,16 @@ export function makeValidator<S extends z.ZodType>(
   schema: S,
 ): (raw: unknown) => z.infer<S> {
   return (raw: unknown) => {
-    const result = schema.safeParse(raw);
+    const result = schema.safeParse(raw ?? {});
 
     if (result.success) {
       return result.data;
     } else {
-      const errorPath = result.error.issues[0].path;
-      const errorMessage = result.error.issues[0].message;
-      throw new Error(
-        `${toolName}: \`${String(errorPath[0])}\` ${errorMessage}`,
-      );
+      const issue = result.error.issues[0];
+      const field =
+        issue.code === "unrecognized_keys" ? issue.keys[0] : issue.path[0];
+
+      throw new Error(`${toolName}: \`${String(field)}\` ${issue.message}`);
     }
   };
 }

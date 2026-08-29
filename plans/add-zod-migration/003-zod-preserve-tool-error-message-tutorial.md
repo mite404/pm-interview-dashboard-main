@@ -381,18 +381,34 @@ Answer in writing before opening anything.
    Your factory throws a `new Error`. What would happen if you threw the
    `ZodError` directly instead — would `loop.ts` handle it, and would the model
    see something useful?
+
+   i think a ZodError object would give us more useful primitives.
+
 2. The plan file says `safeParse` "leaves the function a Calculation with a single
    throwing exit". What is the _second_ exit you get if you use `parse` inside a
    `try/catch` and re-throw? Why does that matter for the message contract?
+
+   i can't find safeParse in the zod docs
+
 3. `loop.ts:129-135` caps the loop at five steps. You have a call with three bad
    fields. Compare total round trips for (a) first-issue-only messages and
    (b) all-issues messages. At what number of bad fields does (a) exhaust the cap?
+
+   if we were using first-issue-only then it doesn't matter how many bad fields an object has
+   you would throw and still have 4 tries left with first-issue-only turned on.
+
 4. Your message format is now a contract with a model. If ETH-46 migrates the
    other nine tools and one of them formats differently, what breaks — and would
    any test catch it?
+
+   this is where i was thinking ahead. having a discriminated union of all the possible types would prevent things
+   from breaking b/c you would see the error before your proram runs.
+
 5. The existing suite's error assertions are all regexes on field names. Now that
    you know that, is `toThrow(/days/)` a bad test? Argue both sides before
    deciding.
+
+   i personally think this is a bad pattern, but the error we get back is a string literal, not an object.
 
 <details>
 <summary>Hints — open only if stuck for more than fifteen minutes</summary>

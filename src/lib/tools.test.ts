@@ -13,6 +13,7 @@ import {
   validateReplyLineage,
   validateTokenUsage,
 } from "./tools";
+import { getAggregateStatsSchema } from "./toolSchemas";
 
 // A stable, all-time stats fixture mirroring the seeded deployment:
 // 39 invocations = 24 succeeded + 8 active + 7 failed; finished = 24 + 7 = 31.
@@ -28,6 +29,7 @@ describe("validateAggregateStats (getAggregateStats args)", () => {
   it("returns empty args when the LLM passes none", () => {
     expect(validateAggregateStats({})).toEqual({});
     expect(validateAggregateStats(undefined)).toEqual({});
+    expect(validateAggregateStats(null)).toEqual({});
   });
 
   it("passes through a valid after timestamp", () => {
@@ -38,6 +40,14 @@ describe("validateAggregateStats (getAggregateStats args)", () => {
     expect(validateAggregateStats({ groupFolder: "maya-web" })).toEqual({
       groupFolder: "maya-web",
     });
+  });
+
+  it("accepts a valid tool call", () => {
+    const result = getAggregateStatsSchema.safeParse({
+      groupFolder: "netscape",
+      after: 1,
+    });
+    expect(result.success).toBe(true);
   });
 
   it("throws when after is not a number", () => {
@@ -56,6 +66,45 @@ describe("validateAggregateStats (getAggregateStats args)", () => {
   it("throws on an unknown key, naming it so the LLM can self-correct", () => {
     expect(() => validateAggregateStats({ days: 7 })).toThrow(/days/);
   });
+
+  it("names the tool in the message, so the model knows WHICH call was wrong", () => {
+    // We want to trigger a validation error (e.g., an unknown key 'days')
+    // and verify the error message starts with the tool name "getAggregateStats:".
+    expect(() => validateAggregateStats({ days: 7 })).toThrow(
+      /getAggregateStats/,
+    );
+  });
+
+  it("rejects an object missing toolName", () => {
+    const result = getAggregateStatsSchema.safeParse({
+      args: { url: "https://x.com" },
+    });
+
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0].path).toEqual([]);
+    }
+  });
+
+  it("rejects an unrecognized key", () => {
+    const result = getAggregateStatsSchema.safeParse({ days: 7 });
+    expect(result.success).toBe(false);
+  });
+
+  // it("scratch: what does safeParse(undefined) do", () => {
+  //   console.log(getAggregateStatsSchema.safeParse(undefined));
+  // });
+
+  // it("scratch: compare shapes", () => {
+  //   const zodResult = getAggregateStatsSchema.safeParse({ days: 7 });
+  //   console.log("raw ZodError:", zodResult.success ? null : zodResult.error);
+
+  //   try {
+  //     validateAggregateStats({ days: 7 });
+  //   } catch (e) {
+  //     console.log("makeValidator's Error:", e);
+  //   }
+  // });
 });
 
 describe("validateTokenUsage (getAggregateTokenUsage args)", () => {
