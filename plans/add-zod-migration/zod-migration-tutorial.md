@@ -56,7 +56,7 @@ Every tool in this repo declares its argument shape three times.
 Take `getAggregateStats`. The shape `{ after?: number, groupFolder?: string }`
 appears at:
 
-1. `src/lib/tools.ts:145-157`, as a JSON Schema object the language model reads
+1. `src/lib/tools.ts:148-163`, as a JSON Schema object the language model reads
 2. `src/lib/tools.ts:104`, as the string array `["after", "groupFolder"]` passed to `assertKnownKeys`
 3. `src/lib/types.ts:122`, as `AggregateStatsArgs`
 
@@ -103,7 +103,7 @@ export function validateAggregateStats(raw: unknown): AggregateStatsArgs {
 Fifteen lines to check two optional fields. The same fifteen-line shape repeats,
 with different field names, nine more times.
 
-The block the model reads, `src/lib/tools.ts:143-158`:
+The block the model reads, `src/lib/tools.ts:148-163`:
 
 ```ts
   parameters: {
@@ -164,11 +164,15 @@ not "zero errors".
 - **`z.strictObject` versus `z.object`.** `z.object()` deletes unknown keys and
   returns success. The whole point of `assertKnownKeys` is that an unknown key
   must throw, because it is how the model finds out it hallucinated a parameter.
-  Getting this wrong silently disables the feature the brief grades. Taught in
-  Phase 1.
+  Getting this wrong silently disables the feature the brief grades. Nothing at
+  the type level can catch that mistake, because the two constructors infer the
+  same TypeScript type. The bind you build in Phase 1 is blind to it, and a
+  runtime unknown-key test is the only thing that enforces it. Taught in Phase 1.
 - **`z.toJSONSchema`.** Zod 4 can print a schema as the JSON Schema object
   OpenRouter's `tools` parameter expects, which is what makes copy 1 derivable
-  rather than hand-written. Taught in Phase 2.
+  rather than hand-written. Its `io` option decides whether it describes the
+  parser's input or its output, and `parameters` needs the input. Taught in
+  Phase 2.
 - **A compile-time equality assertion.** A type-level check that fails the build
   when the Zod schema and the Convex-derived args disagree. This is the piece
   that turns "someone was careful" into "the compiler refuses". Taught in Phase 1.
@@ -186,15 +190,15 @@ not "zero errors".
 Build order is leaf to trunk: schemas before the validators that use them, before
 the registry that holds them, before the tests that pin them.
 
-| Path                     | Role                 | What it holds                                                                     | You                   |
-| ------------------------ | -------------------- | --------------------------------------------------------------------------------- | --------------------- |
-| `package.json`           | Main                 | Zod is present transitively via `convex`; this promotes it to a direct dependency | **Build**             |
-| `src/lib/types.ts`       | Data                 | `RegisteredTool`, and the `FunctionArgs<>` arg types the schemas bind to          | **Build**             |
-| `src/lib/toolSchemas.ts` | Data                 | New file. One Zod schema per tool, plus the compile-time binds                    | **Build**             |
-| `src/lib/tools.ts`       | Calculation + Action | The `validate*` functions, the `parameters` blocks, the registry                  | **Build**             |
-| `src/lib/tools.test.ts`  | Calculation          | 279 lines already asserting the behaviour you must preserve                       | **Read**, then extend |
-| `src/lib/loop.ts`        | Orchestration        | Reads `error.message` at line 123 and feeds it to the model                       | **Read only**         |
-| `convex/`                | given                | The brief's backend slice, 6 pre-existing type errors                             | **Do not touch**      |
+| Path                     | Role                 | What it holds                                                                                                          | You                   |
+| ------------------------ | -------------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `package.json`           | Main                 | Zod is present only via the `eslint-plugin-react-hooks` devDependency; this promotes it to a direct runtime dependency | **Build**             |
+| `src/lib/types.ts`       | Data                 | `RegisteredTool`, and the `FunctionArgs<>` arg types the schemas bind to                                               | **Build**             |
+| `src/lib/toolSchemas.ts` | Data                 | New file. One Zod schema per tool, plus the compile-time binds                                                         | **Build**             |
+| `src/lib/tools.ts`       | Calculation + Action | The `validate*` functions, the `parameters` blocks, the registry                                                       | **Build**             |
+| `src/lib/tools.test.ts`  | Calculation          | 279 lines already asserting the behaviour you must preserve                                                            | **Read**, then extend |
+| `src/lib/loop.ts`        | Orchestration        | Reads `error.message` at line 123 and feeds it to the model                                                            | **Read only**         |
+| `convex/`                | given                | The brief's backend slice, 6 pre-existing type errors                                                                  | **Do not touch**      |
 
 ---
 
@@ -314,14 +318,16 @@ import type { AggregateStatsArgs } from "./types"; // → { after?: number; grou
 //   - An unknown key must THROW, not be dropped. Zod has two object
 //     constructors and only one of them does that. Which default would let a
 //     hallucinated `lane` through silently?
-//   - Carry the description strings over from tools.ts:145-157 verbatim.
+//   - Carry the two per-field description strings over verbatim: tools.ts:153-155
+//     onto `after`, tools.ts:159 onto `groupFolder`. NOT the tool-level
+//     `description` at tools.ts:143-147.
 //     Zod has a method for attaching human-readable text to a field; you will
 //     need it in Phase 2 and it costs nothing to add now.
-export const aggregateStatsSchema = z.strictObject({}); // → ZodObject, remove when implemented
+export const getAggregateStatsSchema = z.strictObject({}); // → ZodObject, remove when implemented
 
 // TODO(you): write the bind.
 //
-// Goal: `tsc` errors if aggregateStatsSchema stops matching AggregateStatsArgs.
+// Goal: `tsc` errors if getAggregateStatsSchema stops matching AggregateStatsArgs.
 //
 // Start with the shape below, then read Step 1.2 before you trust it.
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
@@ -373,7 +379,7 @@ greater than `0`. Then delete the drifted schema and it prints `0`.
 import { z } from "zod"; // → module
 import type { AggregateStatsArgs } from "./types"; // → { after?: number; groupFolder?: string }
 
-export const aggregateStatsSchema = z.strictObject({
+export const getAggregateStatsSchema = z.strictObject({
   // → ZodObject
   after: z
     .number()
@@ -394,7 +400,7 @@ type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : never) : never;
 type Bound<S, Args> = Exact<Required<S>, Required<Args>>; // → true | never
 
 const _aggregateStatsBound: Bound<
-  z.infer<typeof aggregateStatsSchema>,
+  z.infer<typeof getAggregateStatsSchema>,
   AggregateStatsArgs
 > = true; // → true
 ```
@@ -402,6 +408,14 @@ const _aggregateStatsBound: Bound<
 `Required<>` is the version that catches both failures. Renaming `groupFolder`
 to `lane` changes the key set, and changing `number` to `string` changes the
 property type. `keyof` alone catches only the first.
+
+**What it still cannot catch, and never will.** Swap `z.strictObject` for
+`z.object` above and the bind stays green, because `z.infer` produces the same
+type for both. Strictness is a property of the parser, not of the type it
+describes. That leaves the guarantee at `docs/PLAN.md:78` resting on one thing,
+a runtime test that feeds in an unknown key and asserts a throw. Phase 4 writes
+one per tool and Phase 5 sweeps for stragglers. Until then, `tsc` passing is not
+evidence about this.
 
 **Why split it this way?** `Bound<>` is its own named type rather than an inline
 expression because it is about to be repeated twelve times. Naming it means the
@@ -421,7 +435,7 @@ cd /Users/ea/Programming/web/fractal/pm-interview-dashboard-main
 **If it fails:** read the error. `Type 'true' is not assignable to type 'never'`
 on the `_aggregateStatsBound` line means the schema really does disagree with
 the backend. Print the inferred type by hovering `z.infer<typeof
-aggregateStatsSchema>` in your editor and compare it to the comment at
+getAggregateStatsSchema>` in your editor and compare it to the comment at
 `types.ts:124`.
 
 ### ✅ Phase 1 complete
@@ -485,7 +499,7 @@ Then in `src/lib/tools.ts`:
 export const getAggregateStatsTool: RegisteredTool = {
   name: "getAggregateStats",
   description: "...",                                     // → string, unchanged
-  // TODO(you): replace the 16-line literal at tools.ts:143-158 with a call.
+  // TODO(you): replace the 16-line literal at tools.ts:148-163 with a call.
   parameters: { type: "object", properties: {} },         // remove when implemented
   execute: (rawArgs, deps) => /* unchanged for now */,
 };
@@ -506,7 +520,7 @@ import { z } from 'zod';
 const S = z.strictObject({
   after: z.number().describe('Optional unix-ms lower bound...').optional(),
 });
-console.log(JSON.stringify(z.toJSONSchema(S), null, 2));
+console.log(JSON.stringify(z.toJSONSchema(S, { io: 'input' }), null, 2));
 "
 ```
 
@@ -515,6 +529,28 @@ through onto each property, and `additionalProperties: false`. That last one is
 the JSON-Schema half of `strictObject`, and it is what tells the model not to
 invent parameters in the first place. Phase 1 made a bad call _throw_. This makes
 the model less likely to make it.
+
+**About that `io: 'input'`.** It is not the default, and for this schema it
+changes nothing. That is why it is worth explaining now rather than debugging in
+Phase 4. Zod emits a different document depending on which side of the parser you
+ask about, and the two diverge as soon as a schema does any work between its
+input and its output. Verified on Zod 4.4.3:
+
+```
+z.strictObject({ after: z.number().default(0) })
+  output → { properties: { after: {...} }, required: ["after"], ... }
+  input  → { properties: { after: {...} }, ... }
+```
+
+`parameters` is the model's instruction sheet for what to **send**, so it wants
+the input side. Output mode would tell the model that `after` is mandatory, when
+the entire reason the default exists is that it is optional. Phase 4 adds that
+default to `getAggregateTokenUsage`.
+
+A second effect, which does not change the code. In `output` mode `z.object` and
+`z.strictObject` emit identical JSON, both carrying `additionalProperties: false`.
+Only `input` mode distinguishes them. So the emitted document is evidence of your
+Phase 1 constructor choice only in the mode you just picked for unrelated reasons.
 
 **Why this approach?** The alternative is to keep the literal and add a test that
 compares it to the generated version. That is more code and it can only tell you
@@ -543,10 +579,13 @@ and `npm run probe:backend` still prints `12 tools checked`.
 // CATEGORY: Calculation - schema in, JSON Schema document out. Pure.
 
 export function toParameters(schema: z.ZodType): Record<string, unknown> {
-  const { $schema: _discard, ...rest } = z.toJSONSchema(schema) as Record<
-    string,
-    unknown
-  >; // → Record<string, unknown>
+  // `io: "input"` is deliberate and not the default. `parameters` describes what
+  // the model SENDS, which is the parser's input side. Default "output" mode
+  // emits a `.default(0)` field as `required`, which would tell the model that
+  // getAggregateTokenUsage's `after` is mandatory once Phase 4 adds it.
+  const { $schema: _discard, ...rest } = z.toJSONSchema(schema, {
+    io: "input",
+  }) as Record<string, unknown>; // → Record<string, unknown>
   return rest; // → { type, properties, additionalProperties }
 }
 ```
@@ -558,7 +597,7 @@ export const getAggregateStatsTool: RegisteredTool = {
   // → RegisteredTool
   name: "getAggregateStats",
   description: "Overall health of agent runs, all-time: ...",
-  parameters: toParameters(aggregateStatsSchema), // → Record<string, unknown>
+  parameters: toParameters(getAggregateStatsSchema), // → Record<string, unknown>
   execute: (rawArgs, deps) =>
     runAggregateStats(validateAggregateStats(rawArgs), deps).then((data) => ({
       tool: "getAggregateStats",
@@ -753,7 +792,7 @@ Then in `tools.ts`:
 export const validateAggregateStats = makeValidator(
   // → (unknown) => AggregateStatsArgs
   "getAggregateStats",
-  aggregateStatsSchema,
+  getAggregateStatsSchema,
 );
 ```
 
@@ -1025,7 +1064,7 @@ returns nothing, and the full suite still reports 141 tests or more.
 
 ### Step 5.3: Quiz yourself
 
-1. After this phase, what still checks that `aggregateStatsSchema` matches the real Convex function? Name the file and the mechanism.
+1. After this phase, what still checks that `getAggregateStatsSchema` matches the real Convex function? Name the file and the mechanism.
 2. Someone adds a `lane` parameter to `api.invocations.getAggregateStats` next month and does not touch `src/`. What is the first thing that fails, and at what moment?
 3. `assets/drift-check.ts` becomes redundant. Name a change to this codebase that would make it useful again.
 
@@ -1092,7 +1131,7 @@ Run in order, from `/Users/ea/Programming/web/fractal/pm-interview-dashboard-mai
 3. **Unit tests.** `npm test` prints `Test Files 24 passed (24)` and `Tests 141 passed (141)` or higher.
 4. **Lint.** `npm run lint` prints `0 errors`. Twenty-one warnings are pre-existing; more than twenty-one means you added one.
 5. **The advertised shapes still work.** `npm run probe:backend` prints `12 tools checked`.
-6. **The bind actually binds.** Break one schema on purpose: rename `groupFolder` to `lane` in `aggregateStatsSchema`. Step 1 must now print a number greater than `0`. Put it back and confirm it returns to `0`. A migration whose safety check you never saw fail is a migration with no safety check.
+6. **The bind actually binds.** Break one schema on purpose: rename `groupFolder` to `lane` in `getAggregateStatsSchema`. Step 1 must now print a number greater than `0`. Put it back and confirm it returns to `0`. A migration whose safety check you never saw fail is a migration with no safety check.
 7. **End to end.** `npm run dev` in one terminal, `npm run test:e2e` in another. All Playwright specs pass.
 8. **Teardown.** Stop the dev server. `git status` shows only the five files in Scope.
 
@@ -1106,7 +1145,7 @@ naive `Exact<>` from Phase 1.2 and it is checking nothing.
 
 **Per step:**
 
-- [ ] Phase 1: `src/lib/toolSchemas.ts` exists, and deliberately renaming a field in `aggregateStatsSchema` makes `tsc -b --noEmit 2>&1 | grep -c "^src/"` print more than `0`
+- [ ] Phase 1: `src/lib/toolSchemas.ts` exists, and deliberately renaming a field in `getAggregateStatsSchema` makes `tsc -b --noEmit 2>&1 | grep -c "^src/"` print more than `0`
 - [ ] Phase 2: `grep -c "additionalProperties" src/lib/tools.ts` prints `0`, and `npm run probe:backend` prints `12 tools checked`
 - [ ] Phase 3: a test asserting the tool name appears in a validation error exists and passes: `./node_modules/.bin/vitest run src/lib/tools.test.ts -t "names the tool"`
 - [ ] Phase 4: `./node_modules/.bin/vitest run src/lib/tools.test.ts` passes the whitespace pair at `tools.test.ts:143-146`
@@ -1143,7 +1182,7 @@ Report back rather than improvising if any of these happen.
 - **Deliberately deferred:** improving any `description` string. They move verbatim so the diff stays reviewable. Wording changes are a separate ticket, and they are the one thing here that actually changes model behaviour.
 - **Deliberately deferred:** the 6 `convex/` type errors.
 - **A reviewer should double-check** two things specifically. First, that `Bound<>` uses `Required<>` or a `keyof` comparison, because the naive version type-checks and does nothing. Second, that every thrown message still begins with the tool name, since no existing test asserts it and it is the property most likely to be lost.
-- **Zod becomes a direct dependency.** It is currently present transitively via `convex` at 4.4.3. Pinning it in `dependencies` means a future `convex` upgrade cannot silently move your validation library.
+- **Zod becomes a direct dependency.** Not tidy-up. Verified 2026-08-24: `zod@4.4.3` is in neither `dependencies` nor `devDependencies`, and `npm ls zod` traces it to `eslint-plugin-react-hooks@^7.1.1`, a devDependency. `convex@1.42.0` does not depend on zod at all. `toolSchemas.ts` is runtime code that ships in the Vite bundle, so an `npm ci --omit=dev` build drops the only provider of its import and fails to resolve it. Install it pinned (`npm install zod@4.4.3`) so the copy you add is the copy the lint plugin already resolves.
 
 ---
 
@@ -1278,6 +1317,11 @@ const _bound: Bound<z.infer<typeof schema>, Args> = true;
 // Reject unknown keys, don't drop them
 z.strictObject({ ... });          // throws
 z.object({ ... });                // silently strips
+// ...and no bind can tell them apart: z.infer<> is identical. Test it at runtime.
+
+// Publish the INPUT side, not the output
+z.toJSONSchema(schema, { io: "input" });   // .default() field stays optional
+z.toJSONSchema(schema);                    // io: "output" -> emits it as required
 
 // Order is semantic
 z.string().trim().min(1);         // "   " throws

@@ -45,7 +45,7 @@ export const enqueue = mutation({
     source: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const group = await ctx.db.get(args.groupId);
+    const group = await ctx.db.get("registeredGroups", args.groupId);
     if (!group) throw new Error("Group not found");
 
     const wordCount = args.messageBody.trim().split(/\s+/).length;

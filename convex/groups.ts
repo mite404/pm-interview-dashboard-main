@@ -81,22 +81,22 @@ export const listSignedUpUsersForAdmin = query({
 export const deleteSignedUpUserForAdmin = mutation({
   args: { personId: v.id("persons") },
   handler: async (ctx, args) => {
-    const person = await ctx.db.get(args.personId);
+    const person = await ctx.db.get("persons", args.personId);
     if (!person) throw new Error("Unknown signed-up user");
 
     const groups = await ctx.db
       .query("registeredGroups")
       .withIndex("by_personId", (q) => q.eq("personId", args.personId))
       .collect();
-    for (const group of groups) await ctx.db.delete(group._id);
+    for (const group of groups) await ctx.db.delete("registeredGroups", group._id);
 
     const tokens = await ctx.db
       .query("gmailTokens")
       .withIndex("by_personId_status", (q) => q.eq("personId", args.personId))
       .collect();
-    for (const token of tokens) await ctx.db.delete(token._id);
+    for (const token of tokens) await ctx.db.delete("gmailTokens", token._id);
 
-    await ctx.db.delete(args.personId);
+    await ctx.db.delete("persons", args.personId);
     return { ok: true };
   },
 });

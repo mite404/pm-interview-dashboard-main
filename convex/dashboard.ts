@@ -36,7 +36,7 @@ export const listWebUserTurns = query({
       if (!groupId) return undefined;
       const key = String(groupId);
       if (folderByGroupId.has(key)) return folderByGroupId.get(key);
-      const group = await ctx.db.get(groupId);
+      const group = await ctx.db.get("registeredGroups", groupId);
       folderByGroupId.set(key, group?.folder);
       return group?.folder;
     };
