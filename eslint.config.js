@@ -109,6 +109,10 @@ export default defineConfig(
       "@typescript-eslint/array-type": "off",
       "@typescript-eslint/no-unused-vars": "off",
       "prefer-const": "off",
+      // invocationEvents.ts carries a `@ts-nocheck` for the same reason this
+      // whole block exists: the sketch predates our bar and we never rewrite
+      // it. The banner comment on that file names the contract it protects.
+      "@typescript-eslint/ban-ts-comment": "off",
       // Convex-idiom rules stay enabled, but as advisory warnings: visible
       // guidance on the given backend without failing the lint gate.
       "@convex-dev/explicit-table-ids": "warn",

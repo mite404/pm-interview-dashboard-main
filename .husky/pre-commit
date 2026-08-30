@@ -1,2 +1,25 @@
+# Local gate. Two halves, cheapest first:
+#
+#   1. mechanical, per-file    prettier on staged files
+#   2. mechanical, whole-repo  tsc + eslint, then fallow's changed-code verdict
+#
+# There is no CI in this repo (no .github/workflows/), so nothing runs any of
+# this a second time on push. If a check is not here, it is not running.
+
 bunx lint-staged
+bun run typecheck
 bun run lint
+
+# fallow: dead exports, complexity, duplication, styling on changed code.
+#
+# `--base HEAD` deliberately replaces fallow's shipped `merge-base @{upstream}`
+# base. That base asks "does this BRANCH introduce a finding?", which at commit
+# time re-reports every finding from every earlier commit on the branch and
+# blocks work unrelated to the edit in hand. `HEAD` asks the pre-commit
+# question: "does THIS commit introduce one?" The branch-wide question belongs
+# to a pre-push or CI tier, which this repo does not have yet.
+#
+# Silent on pass, full report on fail. Skipped when fallow is not installed, so
+# the hook stays portable.
+command -v fallow >/dev/null 2>&1 || exit 0
+fallow audit --base HEAD --quiet --gate-marker pre-commit
